@@ -15,7 +15,7 @@
 | `sdlc-tools report` | Generates an AI code impact report using your chosen provider and posts it as a styled HTML comment on the PR. |
 | `sdlc-tools tag` | Creates or updates a release tag when a PR is merged into a release branch (designed for GitHub Actions). |
 | `sdlc-tools setup` | Validates your GitHub token, configures your AI provider, and writes everything to `~/.sdlc/config.yml`. |
-| `sdlc-tools init` | Scaffolds a `.sdlc.yml` project config file in the current repository. |
+| `sdlc-tools init` | Scaffolds `.sdlc.yml` config + GitHub Actions workflows (`ai-report.yml`, `release-tag.yml`) in the current repo. |
 
 ---
 
@@ -66,7 +66,7 @@ sdlc-tools setup --provider openai --ai-key sk-your-key
 sdlc-tools setup
 ```
 
-### 3. Initialize project config
+### 3. Initialize project config + workflows
 
 ```bash
 cd your-repo
@@ -74,13 +74,27 @@ sdlc-tools init
 # or: python -m sdlc_tools init
 ```
 
-This creates a `.sdlc.yml` file with project-level settings (committed to git). Edit it to match your project:
+This creates **three files** (skipping any that already exist):
+
+| File | Purpose |
+|---|---|
+| `.sdlc.yml` | Project-level settings (committed to git) |
+| `.github/workflows/ai-report.yml` | AI code impact report on every PR |
+| `.github/workflows/release-tag.yml` | Auto-tag on PR merge into `releases/**` |
+
+Edit `.sdlc.yml` to match your project:
 
 ```yaml
 sdlc:
   base_branch: develop
   # release_prefix: releases
   # max_diff_length: 20000
+```
+
+To skip workflow generation (config only):
+
+```bash
+sdlc-tools init --skip-workflows
 ```
 
 ### 4. Use it
@@ -187,7 +201,14 @@ Commands:
 
 ### `sdlc-tools init`
 
-No options. Creates a `.sdlc.yml` template in the current directory with project-level settings.
+Scaffolds project config and CI workflows:
+
+```
+sdlc-tools init                 # creates .sdlc.yml + .github/workflows/{ai-report,release-tag}.yml
+sdlc-tools init --skip-workflows  # creates .sdlc.yml only
+```
+
+Existing files are never overwritten — safe to re-run.
 
 ---
 
@@ -294,6 +315,8 @@ If the file is missing at runtime, the tool falls back to the bundled default.
 ---
 
 ## GitHub Actions Usage
+
+> **Tip:** `sdlc-tools init` generates both workflow files below automatically. You only need to add your provider's API key as a repository secret.
 
 ### AI Report on Pull Requests
 
