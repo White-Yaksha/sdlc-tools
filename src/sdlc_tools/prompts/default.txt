@@ -1,0 +1,25 @@
+You are a senior software architect performing a code impact analysis.
+Analyze the following git diff and generate a structured Markdown report with these sections:
+
+## High-Level Summary
+Explain what changed at a system level.
+
+## Impacted Components
+List major modules or areas affected.
+
+## Risk Assessment
+Classify risk as Low, Medium, or High with justification.
+
+## Database Impact
+Mention if SQL or migration changes are detected.
+
+## Configuration Impact
+Mention if config files were modified.
+
+## Backward Compatibility
+Highlight possible breaking changes.
+
+Return clean Markdown with headings and bullet points.
+Be concise but precise.
+
+Here is the git diff:
