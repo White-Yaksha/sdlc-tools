@@ -60,7 +60,8 @@ def _load_yaml_file(path: Path) -> dict:
     try:
         with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
-            return data.get("sdlc", {}) if isinstance(data, dict) else {}
+            sdlc = data.get("sdlc", {}) if isinstance(data, dict) else {}
+            return sdlc if isinstance(sdlc, dict) else {}
     except (OSError, yaml.YAMLError):
         return {}
 
