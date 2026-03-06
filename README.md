@@ -34,11 +34,18 @@ pip install git+https://github.com/White-Yaksha/sdlc-tools.git@v0.1.0
 ```
 
 > **Note:** If `sdlc-tools` isn't found after install, use `python -m sdlc_tools` instead, or add Python's `Scripts` directory to your PATH.
+>
+> All commands work with either invocation:
+> ```bash
+> sdlc-tools report          # if Scripts is on PATH
+> python -m sdlc_tools report  # always works
+> ```
 
 ### 2. Set up your token and AI provider
 
 ```bash
 sdlc-tools setup
+# or: python -m sdlc_tools setup
 ```
 
 This auto-detects your GitHub token (from `gh auth token` or prompts you), validates it against the GitHub API, and saves it to `~/.sdlc/config.yml`.
@@ -64,6 +71,7 @@ sdlc-tools setup
 ```bash
 cd your-repo
 sdlc-tools init
+# or: python -m sdlc_tools init
 ```
 
 This creates a `.sdlc.yml` file with project-level settings (committed to git). Edit it to match your project:
@@ -80,6 +88,7 @@ sdlc:
 ```bash
 # Generate AI report and post to PR
 sdlc-tools report
+# or: python -m sdlc_tools report
 
 # Preview without side effects
 sdlc-tools report --dry-run
@@ -124,6 +133,8 @@ sdlc:
 ---
 
 ## CLI Reference
+
+Both `sdlc-tools` and `python -m sdlc_tools` are equivalent. All examples below use the short form.
 
 ```
 Usage: sdlc-tools [OPTIONS] COMMAND [ARGS]...
