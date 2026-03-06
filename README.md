@@ -12,9 +12,9 @@
 
 | Command | Description |
 |---|---|
-| `sdlc-tools report` | Generates an AI code impact report (via configurable AI provider) and posts it as a styled HTML comment on the associated PR. |
+| `sdlc-tools report` | Generates an AI code impact report using your chosen provider and posts it as a styled HTML comment on the PR. |
 | `sdlc-tools tag` | Creates or updates a release tag when a PR is merged into a release branch (designed for GitHub Actions). |
-| `sdlc-tools setup` | Validates your GitHub token and writes user-level config to `~/.sdlc/config.yml`. |
+| `sdlc-tools setup` | Validates your GitHub token, configures your AI provider, and writes everything to `~/.sdlc/config.yml`. |
 | `sdlc-tools init` | Scaffolds a `.sdlc.yml` project config file in the current repository. |
 
 ---
@@ -33,21 +33,30 @@ Or pin a version:
 pip install git+https://github.com/White-Yaksha/sdlc-tools.git@v0.1.0
 ```
 
-### 2. Set up your token
+> **Note:** If `sdlc-tools` isn't found after install, use `python -m sdlc_tools` instead, or add Python's `Scripts` directory to your PATH.
+
+### 2. Set up your token and AI provider
 
 ```bash
 sdlc-tools setup
 ```
 
-This auto-detects your GitHub token (from `gh auth token` or prompts you), validates it, and saves it to `~/.sdlc/config.yml`. Optionally set a custom AI prompt or provider:
+This auto-detects your GitHub token (from `gh auth token` or prompts you), validates it against the GitHub API, and saves it to `~/.sdlc/config.yml`.
+
+Configure your AI provider at the same time:
 
 ```bash
-sdlc-tools setup --prompt-file ~/my-custom-prompt.txt
-```
+# Free option — Gemini (Google AI, free tier available)
+sdlc-tools setup --provider gemini --ai-key AIza-your-key
 
-```bash
-# Use OpenAI instead of the default Copilot CLI
-sdlc-tools setup --provider openai --ai-key sk-your-key-here
+# Free option — Ollama (fully local, no API key needed)
+sdlc-tools setup --provider ollama
+
+# Paid option — OpenAI
+sdlc-tools setup --provider openai --ai-key sk-your-key
+
+# Default — GitHub Copilot CLI (requires Copilot subscription + gh CLI)
+sdlc-tools setup
 ```
 
 ### 3. Initialize project config
@@ -57,13 +66,13 @@ cd your-repo
 sdlc-tools init
 ```
 
-This creates a `.sdlc.yml` file with project-level settings (committed to git):
+This creates a `.sdlc.yml` file with project-level settings (committed to git). Edit it to match your project:
 
 ```yaml
 sdlc:
-  base_branch: releases/2026.3
-  release_prefix: releases
-  max_diff_length: 20000
+  base_branch: develop
+  # release_prefix: releases
+  # max_diff_length: 20000
 ```
 
 ### 4. Use it
@@ -75,8 +84,41 @@ sdlc-tools report
 # Preview without side effects
 sdlc-tools report --dry-run
 
+# Override provider/model at runtime
+sdlc-tools report --provider anthropic --model claude-sonnet-4-20250514
+
 # Verbose output
 sdlc-tools report -v
+```
+
+---
+
+## Multi-Model AI Support
+
+sdlc-tools supports **5 AI providers** out of the box. Choose the one that fits your workflow and budget:
+
+| Provider | Default Model | API Key Env Var | Free? |
+|---|---|---|---|
+| `copilot` (default) | — (uses `gh copilot` CLI) | Copilot subscription | ✗ |
+| `openai` | `gpt-4o` | `OPENAI_API_KEY` | ✗ |
+| `anthropic` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` | ✗ |
+| `gemini` | `gemini-2.0-flash` | `GEMINI_API_KEY` | ✓ (free tier) |
+| `ollama` | `llama3.2` | **None needed** | ✓ (fully local) |
+
+### API Key Resolution Order
+
+1. `ai_api_key` in config (CLI arg → `AI_API_KEY` env var → config file)
+2. Provider-specific env var (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`)
+3. If neither is found → error (except `copilot` and `ollama`, which need no key)
+
+### Custom Endpoints
+
+All HTTP-based providers support `ai_base_url` for proxies, self-hosted models, or Azure OpenAI:
+
+```yaml
+sdlc:
+  ai_provider: openai
+  ai_base_url: https://my-proxy.example.com
 ```
 
 ---
@@ -86,102 +128,122 @@ sdlc-tools report -v
 ```
 Usage: sdlc-tools [OPTIONS] COMMAND [ARGS]...
 
-  SDLC Tools — A developer CLI for SDLC automation.
-
 Options:
-  --dry-run       Preview actions without side effects.
-  -v, --verbose   Enable debug logging.
-  --config PATH   Path to .sdlc.yml config file.
-  --log-file TEXT  Write logs to a file.
-  --version       Show version and exit.
-  -h, --help      Show this message and exit.
+  --dry-run        Preview actions without side effects.
+  -v, --verbose    Enable debug logging.
+  --config PATH    Path to .sdlc.yml config file.
+  --log-file TEXT   Write logs to a file.
+  --version        Show version and exit.
+  -h, --help       Show this message and exit.
 
 Commands:
-  init    Create a .sdlc.yml project config file in the current directory.
-  report  Generate an AI code impact report and post it to the PR.
-  setup   Set up user-level config at ~/.sdlc/config.yml (token + prompt).
-  tag     Create or update a release tag (CI workflow command).
+  init    Create a .sdlc.yml project config file.
+  report  Generate an AI code impact report and post to PR.
+  setup   Set up user-level config at ~/.sdlc/config.yml.
+  tag     Create or update a release tag (CI workflow).
 ```
 
 ### `sdlc-tools report`
 
-```
-Options:
-  --base-branch TEXT  Base branch for diff (overrides config).
-  --provider TEXT     AI provider: copilot, openai, anthropic, gemini, ollama.
-  --model TEXT        AI model name (overrides config).
-```
+| Option | Description |
+|---|---|
+| `--base-branch TEXT` | Base branch for diff (overrides config). |
+| `--provider TEXT` | AI provider: `copilot`, `openai`, `anthropic`, `gemini`, `ollama`. |
+| `--model TEXT` | AI model name (overrides config default). |
 
-Generates a git diff against the base branch, sends it to the configured AI provider for analysis, converts the Markdown response to styled HTML, and posts it as a comment on the open PR (or creates a draft PR if none exists).
+**How it works:** Generates a `git diff` against the base branch → sends it to the configured AI provider with the prompt template → converts the Markdown response to styled HTML → posts it as an idempotent comment on the open PR (or creates a draft PR if none exists).
 
 ### `sdlc-tools tag`
 
-```
-Options:
-  --tag-name TEXT    Tag name to create (overrides config).
-  --event-path TEXT  Path to GitHub event JSON (CI only).
-```
+| Option | Description |
+|---|---|
+| `--tag-name TEXT` | Tag name to create (overrides config). |
+| `--event-path TEXT` | Path to GitHub event JSON (CI only). |
 
-Designed for GitHub Actions. Reads the PR event payload, checks if the PR was merged into a release branch, and creates/updates a lightweight tag.
+**How it works:** Reads the GitHub Actions PR event payload → checks if the PR was merged into a release branch (matching `release_prefix`) → creates/updates a lightweight tag. Idempotent — safe to re-run.
 
 ### `sdlc-tools setup`
 
-```
-Options:
-  --token TEXT        GitHub personal access token.
-  --prompt-file TEXT  Path to a custom Copilot prompt file.
-  --provider TEXT     AI provider: copilot, openai, anthropic, gemini, ollama.
-  --model TEXT        Default AI model name.
-  --ai-key TEXT       API key for the AI provider.
-```
+| Option | Description |
+|---|---|
+| `--token TEXT` | GitHub personal access token. |
+| `--prompt-file TEXT` | Path to a custom AI prompt file. |
+| `--provider TEXT` | AI provider: `copilot`, `openai`, `anthropic`, `gemini`, `ollama`. |
+| `--model TEXT` | Default AI model name. |
+| `--ai-key TEXT` | API key for the AI provider. |
 
-Validates your GitHub token against the API, then writes user-level config to `~/.sdlc/config.yml`. Auto-detects tokens from `gh auth token` if not provided.
+**How it works:** Auto-detects or prompts for a GitHub token → validates it against the GitHub API (shows username + scopes) → writes all settings to `~/.sdlc/config.yml`. Merges with existing config if present.
+
+### `sdlc-tools init`
+
+No options. Creates a `.sdlc.yml` template in the current directory with project-level settings.
 
 ---
 
 ## Configuration
 
-Configuration is resolved in five layers (lowest → highest priority):
+Configuration is resolved in **five layers** (lowest → highest priority):
 
-1. **Code defaults** — built into the tool
-2. **`~/.sdlc/config.yml`** — user-level global config (token, prompt, personal prefs)
-3. **`.sdlc.yml`** file in the repo root — project-level settings
-4. **Environment variables** (for CI)
-5. **CLI arguments** (runtime overrides)
+```
+Code defaults → ~/.sdlc/config.yml → .sdlc.yml → Environment variables → CLI arguments
+```
 
-### `~/.sdlc/config.yml` (User Global)
+### `~/.sdlc/config.yml` — User Global
 
 Created by `sdlc-tools setup`. Not committed to git — personal to each developer:
 
 ```yaml
 sdlc:
   github_token: ghp_your_token_here
-  prompt_file: /path/to/custom-prompt.txt
-  # Any other fields (base_branch, etc.) can go here as personal defaults
+  ai_provider: openai
+  ai_model: gpt-4o
+  ai_api_key: sk-...
+  prompt_file: ~/prompts/my-custom-prompt.txt
 ```
 
-### `.sdlc.yml` Reference
+### `.sdlc.yml` — Project Level
+
+Created by `sdlc-tools init`. Committed to git — shared across the team:
 
 ```yaml
 sdlc:
-  base_branch: develop           # Branch to diff against
-  release_prefix: releases       # Release branch name prefix
-  max_diff_length: 20000         # Max diff chars sent to AI
-  comment_marker: "<!-- AI-SDLC-REPORT -->"  # Idempotent comment marker
+  base_branch: develop
+  release_prefix: releases
+  max_diff_length: 20000
+  comment_marker: "<!-- AI-SDLC-REPORT -->"
 ```
+
+### All Config Fields
+
+| Field | Default | Description |
+|---|---|---|
+| `base_branch` | `develop` | Branch to diff against |
+| `release_prefix` | `releases` | Prefix for release branch detection |
+| `release_tag_name` | — | Tag name to create on merge |
+| `max_diff_length` | `20000` | Max diff characters sent to AI |
+| `comment_marker` | `<!-- AI-SDLC-REPORT -->` | HTML marker for idempotent PR comments |
+| `github_token` | — | GitHub PAT (auto-detected or prompted) |
+| `prompt_file` | — | Custom prompt file path (falls back to built-in) |
+| `ai_provider` | `copilot` | AI backend (`copilot`/`openai`/`anthropic`/`gemini`/`ollama`) |
+| `ai_model` | — | Override provider's default model |
+| `ai_api_key` | — | API key (or use provider-specific env var) |
+| `ai_base_url` | — | Custom API endpoint for proxies |
+| `ai_timeout` | `120` | API call timeout in seconds |
 
 ### Environment Variables
 
 | Variable | Maps to |
 |---|---|
-| `BASE_BRANCH` | `base_branch` |
-| `RELEASE_PREFIX` | `release_prefix` |
-| `RELEASE_TAG_NAME` | `release_tag_name` |
-| `MAX_DIFF_LENGTH` | `max_diff_length` |
 | `GITHUB_TOKEN` | `github_token` |
 | `GITHUB_REPOSITORY` | `github_repository` |
 | `GITHUB_EVENT_NAME` | `github_event_name` |
 | `GITHUB_EVENT_PATH` | `github_event_path` |
+| `BASE_BRANCH` | `base_branch` |
+| `RELEASE_PREFIX` | `release_prefix` |
+| `RELEASE_TAG_NAME` | `release_tag_name` |
+| `MAX_DIFF_LENGTH` | `max_diff_length` |
+| `COMMENT_MARKER` | `comment_marker` |
+| `DRY_RUN` | `dry_run` |
 | `AI_PROVIDER` | `ai_provider` |
 | `AI_MODEL` | `ai_model` |
 | `AI_API_KEY` | `ai_api_key` |
@@ -190,98 +252,42 @@ sdlc:
 
 ---
 
----
+## Custom Prompt
 
-## Custom Copilot Prompt
+By default, sdlc-tools uses a built-in prompt that analyzes diffs across 6 dimensions: high-level summary, impacted components, risk assessment, database impact, configuration impact, and backward compatibility.
 
-By default, sdlc-tools uses a built-in prompt template for AI code analysis. You can override it with your own:
-
-1. Create a text file with your custom prompt (must end with the diff placeholder):
-
-   ```text
-   You are a security-focused code reviewer.
-   Analyze this diff for vulnerabilities, auth issues, and data leaks.
-   Here is the git diff:
-   ```
-
-2. Set it via setup:
-
-   ```bash
-   sdlc-tools setup --prompt-file ~/prompts/security-review.txt
-   ```
-
-   Or add it to `~/.sdlc/config.yml`:
-
-   ```yaml
-   sdlc:
-     prompt_file: ~/prompts/security-review.txt
-   ```
-
-The tool will read the prompt file at runtime. If the file is missing, it falls back to the bundled default.
-
----
-
-## Multi-Model AI Support
-
-sdlc-tools supports **5 AI providers** out of the box. Choose the one that fits your workflow and budget:
-
-| Provider | API Endpoint | Key Required | Default Model | Free? |
-|---|---|---|---|---|
-| `copilot` | `gh copilot` CLI (subprocess) | Copilot subscription | — | ✗ (subscription) |
-| `openai` | `api.openai.com/v1/chat/completions` | `OPENAI_API_KEY` | `gpt-4o` | ✗ |
-| `anthropic` | `api.anthropic.com/v1/messages` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | ✗ |
-| `gemini` | `generativelanguage.googleapis.com` | `GEMINI_API_KEY` | `gemini-2.0-flash` | ✓ (free tier) |
-| `ollama` | `localhost:11434` (local) | **None** | `llama3.2` | ✓ (fully local) |
-
-### Quick Setup
+Override it with your own:
 
 ```bash
-# Use OpenAI
-sdlc-tools setup --provider openai --ai-key sk-your-key
-sdlc-tools report
-
-# Use Gemini (free tier)
-sdlc-tools setup --provider gemini --ai-key AIza-your-key
-sdlc-tools report
-
-# Use Ollama (free, local — no API key needed)
-# First: install Ollama and run `ollama serve`
-sdlc-tools setup --provider ollama
-sdlc-tools report
-
-# Override at runtime
-sdlc-tools report --provider anthropic --model claude-sonnet-4-20250514
+sdlc-tools setup --prompt-file ~/prompts/security-review.txt
 ```
 
-### Config Example
-
-In `~/.sdlc/config.yml`:
+Or in `~/.sdlc/config.yml`:
 
 ```yaml
 sdlc:
-  github_token: ghp_...
-  ai_provider: openai        # copilot | openai | anthropic | gemini | ollama
-  ai_model: gpt-4o           # optional model override
-  ai_api_key: sk-...          # or set via env var (OPENAI_API_KEY, etc.)
-  ai_base_url: ""             # custom endpoint for proxies or self-hosted
-  ai_timeout: 120             # seconds
+  prompt_file: ~/prompts/security-review.txt
 ```
 
-### API Key Resolution
+Example custom prompt:
 
-Keys are resolved in this order:
-1. `ai_api_key` in config (CLI arg → env var → config file)
-2. Provider-specific env var (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`)
-3. If neither is found → error (except Ollama, which needs no key)
+```text
+You are a security-focused code reviewer.
+Analyze this diff for vulnerabilities, auth issues, and data leaks.
+Classify risk as Low / Medium / High / Critical.
+Here is the git diff:
+```
+
+If the file is missing at runtime, the tool falls back to the bundled default.
 
 ---
 
 ## GitHub Actions Usage
 
-### AI Report on PR (pre-push hook alternative)
+### AI Report on Pull Requests
 
 ```yaml
-name: AI Code Report
+name: AI Code Impact Report
 on:
   pull_request:
     types: [opened, synchronize]
@@ -298,14 +304,14 @@ jobs:
       - run: sdlc-tools report --base-branch ${{ github.base_ref }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AI_PROVIDER: openai  # or: anthropic, gemini, ollama, copilot
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AI_PROVIDER: gemini   # or: openai, anthropic, ollama, copilot
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 ```
 
 ### Release Tagging on PR Merge
 
 ```yaml
-name: SDLC CI Automation
+name: Release Tag
 on:
   pull_request:
     types: [closed]
@@ -331,13 +337,11 @@ jobs:
 
 ---
 
-## Pre-Push Hook Setup
+## Pre-Push Hook
+
+Automatically generate AI reports before pushing:
 
 ```bash
-# Install the tool
-pip install git+https://github.com/White-Yaksha/sdlc-tools.git
-
-# Add to your .git/hooks/pre-push
 cat > .git/hooks/pre-push << 'EOF'
 #!/bin/sh
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -356,36 +360,47 @@ chmod +x .git/hooks/pre-push
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  CLI (click)                    │
-│     sdlc-tools report | tag | setup | init      │
-├────────────┬────────────┬───────────────────────┤
-│  report.py │  tagger.py │       config.py       │
-│  (AI + PR) │  (tags)    │  5-layer config merge │
-├────────────┴────────────┤                       │
-│         ai.py           │       log.py          │
-│  (5 AI providers)       │    (structured log)   │
-│  copilot | openai       │                       │
-│  anthropic | gemini     │  prompts/__init__.py  │
-│  ollama (free local)    │  (prompt loader)      │
-├─────────────────────────┤                       │
-│       client.py         │  prompts/default.txt  │
-│  (GitHub API + auth)    │  (bundled template)   │
-├─────────────────────────┤                       │
-│        git.py           │                       │
-│   (git operations)      │                       │
-├─────────────────────────┤                       │
-│        html.py          │                       │
-│      (MD → HTML)        │                       │
-└─────────────────────────┴───────────────────────┘
+sdlc-tools/
+├── src/sdlc_tools/
+│   ├── cli.py               ← Click CLI (report, tag, setup, init)
+│   ├── config.py            ← 5-layer config system (dataclass + YAML + env)
+│   ├── ai.py                ← AI provider abstraction (5 providers + factory)
+│   ├── report.py            ← Report orchestrator (diff → AI → HTML → PR)
+│   ├── client.py            ← GitHub REST API client (auth, PRs, comments, tags)
+│   ├── git.py               ← Git operations (diff, branch, fetch)
+│   ├── html.py              ← Markdown → styled HTML converter
+│   ├── tagger.py            ← Release tag manager (event-driven)
+│   ├── log.py               ← Structured logging setup
+│   └── prompts/
+│       ├── __init__.py      ← Prompt loader (custom file or bundled default)
+│       └── default.txt      ← Built-in analysis prompt (6-section template)
 ```
+
+### Report Flow
+
+```
+sdlc-tools report
+  │
+  ├─ config.py      → Load 5-layer config
+  ├─ git.py         → git diff origin/<base>...HEAD
+  ├─ prompts/       → Load prompt template
+  ├─ ai.py          → Send to AI provider (OpenAI/Gemini/Ollama/etc.)
+  ├─ html.py        → Convert Markdown response → styled HTML
+  └─ client.py      → POST/PATCH comment on PR (idempotent via marker)
+```
+
+### Key Design Decisions
+
+- **No new dependencies for AI** — all providers use the existing `requests` library
+- **Idempotent operations** — PR comments update in place (no duplicates), tags delete-before-create
+- **Dry-run at every layer** — `--dry-run` skips all write operations (AI calls, API posts)
+- **Provider abstraction** — `AIProvider` ABC with `analyze(prompt, diff) → str` makes adding new providers trivial
 
 ---
 
 ## Development
 
 ```bash
-# Clone
 git clone https://github.com/White-Yaksha/sdlc-tools.git
 cd sdlc-tools
 
@@ -395,12 +410,21 @@ pip install -e ".[dev]"
 # Lint
 ruff check src/ tests/
 
-# Test
+# Test (70 tests)
 pytest --tb=short -q
 
-# Coverage
-coverage run -m pytest && coverage report
+# Coverage (80% threshold)
+coverage run -m pytest && coverage report --fail-under=80
 ```
+
+### Dependencies
+
+| Package | Purpose |
+|---|---|
+| `click >=8.1` | CLI framework |
+| `requests >=2.31` | HTTP client (GitHub API + AI providers) |
+| `pyyaml >=6.0` | YAML config parsing |
+| `pytest`, `responses`, `ruff` | Dev: testing, HTTP mocking, linting |
 
 ---
 
