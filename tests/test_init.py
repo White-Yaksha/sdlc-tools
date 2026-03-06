@@ -1,0 +1,80 @@
+"""Tests for the ``sdlc-tools init`` command."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from click.testing import CliRunner
+
+from sdlc_tools.cli import main
+
+
+class TestInit:
+    """Verify init scaffolds .sdlc.yml + workflow files."""
+
+    def test_creates_all_files(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(main, ["init"])
+            assert result.exit_code == 0
+            assert Path(".sdlc.yml").is_file()
+            assert Path(".github/workflows/ai-report.yml").is_file()
+            assert Path(".github/workflows/release-tag.yml").is_file()
+            assert "Created 3 file(s)" in result.output
+
+    def test_skips_existing_sdlc_yml(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path(".sdlc.yml").write_text("existing", encoding="utf-8")
+            result = runner.invoke(main, ["init"])
+            assert result.exit_code == 0
+            assert "skip  .sdlc.yml" in result.output
+            assert Path(".sdlc.yml").read_text(encoding="utf-8") == "existing"
+            assert "Created 2 file(s)" in result.output
+
+    def test_skips_existing_workflows(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            wf_dir = Path(".github/workflows")
+            wf_dir.mkdir(parents=True)
+            (wf_dir / "ai-report.yml").write_text("existing", encoding="utf-8")
+            result = runner.invoke(main, ["init"])
+            assert result.exit_code == 0
+            assert "skip  .github/workflows/ai-report.yml" in result.output
+            assert (wf_dir / "ai-report.yml").read_text(encoding="utf-8") == "existing"
+            assert (wf_dir / "release-tag.yml").is_file()
+            assert "Created 2 file(s)" in result.output
+
+    def test_all_exist_nothing_created(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            Path(".sdlc.yml").write_text("x", encoding="utf-8")
+            wf_dir = Path(".github/workflows")
+            wf_dir.mkdir(parents=True)
+            (wf_dir / "ai-report.yml").write_text("x", encoding="utf-8")
+            (wf_dir / "release-tag.yml").write_text("x", encoding="utf-8")
+            result = runner.invoke(main, ["init"])
+            assert result.exit_code == 0
+            assert "Nothing to create" in result.output
+
+    def test_skip_workflows_flag(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(main, ["init", "--skip-workflows"])
+            assert result.exit_code == 0
+            assert Path(".sdlc.yml").is_file()
+            assert not Path(".github").exists()
+            assert "Created 1 file(s)" in result.output
+
+    def test_workflow_content_valid_yaml(self, tmp_path: Path) -> None:
+        import yaml
+
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            runner.invoke(main, ["init"])
+            for name in ("ai-report.yml", "release-tag.yml"):
+                path = Path(".github/workflows") / name
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                assert "name" in data
+                assert True in data  # YAML parses `on:` as boolean True
+                assert "jobs" in data
