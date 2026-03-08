@@ -267,3 +267,49 @@ class GitHubClient:
             log.error("Failed to update comment: %s", resp.status_code)
         else:
             log.info("Updated comment (ID: %d).", comment_id)
+
+    # ------------------------------------------------------------------
+    # Releases
+    # ------------------------------------------------------------------
+
+    def find_release_by_tag(
+        self, owner: str, repo: str, tag_name: str,
+    ) -> int | None:
+        """Return the release ID for *tag_name*, or None if not found."""
+        url = f"{_API_BASE}/repos/{owner}/{repo}/releases/tags/{tag_name}"
+        resp = requests.get(
+            url, headers=self._headers(), timeout=_TIMEOUT,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json().get("id")
+
+    def delete_release(self, owner: str, repo: str, release_id: int) -> None:
+        """Delete a release by its ID."""
+        url = f"{_API_BASE}/repos/{owner}/{repo}/releases/{release_id}"
+        resp = self._delete(url)
+        if resp and resp.status_code == 404:
+            log.info("Release %d was already deleted.", release_id)
+        else:
+            log.info("Deleted release %d.", release_id)
+
+    def create_release(
+        self,
+        owner: str,
+        repo: str,
+        tag_name: str,
+        *,
+        name: str = "",
+        body: str = "",
+    ) -> dict | None:
+        """Create a GitHub release for the given tag."""
+        url = f"{_API_BASE}/repos/{owner}/{repo}/releases"
+        payload: dict[str, Any] = {
+            "tag_name": tag_name,
+            "name": name or tag_name,
+            "body": body,
+            "generate_release_notes": True,
+        }
+        resp = self._post(url, json=payload)
+        return resp.json() if resp else None

@@ -43,23 +43,45 @@ class TestHandleEvent:
     def test_merged_pr_creates_tag(self, mock_client: MagicMock, config: SdlcConfig) -> None:
         mock_client.get_ref_sha.return_value = "abc123"
         mock_client.tag_exists.return_value = False
+        mock_client.find_release_by_tag.return_value = None
         mock_client.create_tag.return_value = {"object": {"sha": "abc123"}}
+        mock_client.create_release.return_value = {"id": 1}
 
         mgr = TagManager(mock_client, config)
         mgr.handle_event("owner", "repo")
 
         mock_client.create_tag.assert_called_once_with("owner", "repo", "v2026.3.0", "abc123")
+        mock_client.create_release.assert_called_once()
 
     def test_existing_tag_deleted_first(self, mock_client: MagicMock, config: SdlcConfig) -> None:
         mock_client.get_ref_sha.return_value = "abc123"
         mock_client.tag_exists.return_value = True
+        mock_client.find_release_by_tag.return_value = None
         mock_client.create_tag.return_value = {"object": {"sha": "abc123"}}
+        mock_client.create_release.return_value = {"id": 1}
 
         mgr = TagManager(mock_client, config)
         mgr.handle_event("owner", "repo")
 
         mock_client.delete_tag.assert_called_once()
         mock_client.create_tag.assert_called_once()
+
+    def test_existing_release_deleted_first(
+        self, mock_client: MagicMock, config: SdlcConfig,
+    ) -> None:
+        mock_client.get_ref_sha.return_value = "abc123"
+        mock_client.tag_exists.return_value = True
+        mock_client.find_release_by_tag.return_value = 42
+        mock_client.create_tag.return_value = {"object": {"sha": "abc123"}}
+        mock_client.create_release.return_value = {"id": 99}
+
+        mgr = TagManager(mock_client, config)
+        mgr.handle_event("owner", "repo")
+
+        mock_client.delete_release.assert_called_once_with("owner", "repo", 42)
+        mock_client.delete_tag.assert_called_once()
+        mock_client.create_tag.assert_called_once()
+        mock_client.create_release.assert_called_once()
 
     def test_skip_if_not_closed(self, mock_client: MagicMock, tmp_path: Path) -> None:
         event = tmp_path / "event.json"
