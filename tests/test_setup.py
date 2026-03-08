@@ -153,3 +153,39 @@ class TestSetupCommand:
         data = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
         assert data["sdlc"]["github_token"] == "ghp_new"
         assert data["sdlc"]["base_branch"] == "main"
+
+    @responses.activate
+    def test_setup_fresh_writes_full_template(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """First-time setup should write a fully-commented config template."""
+        user_dir = tmp_path / ".sdlc"
+        monkeypatch.setattr("sdlc_tools.config._USER_CONFIG_DIR", user_dir)
+        monkeypatch.setattr("sdlc_tools.config._USER_CONFIG_PATH", user_dir / "config.yml")
+
+        responses.add(
+            responses.GET,
+            "https://api.github.com/user",
+            json={"login": "dev", "name": ""},
+            headers={"X-OAuth-Scopes": "repo"},
+            status=200,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main, ["setup", "--token", "ghp_fresh", "--provider", "gemini"],
+        )
+        assert result.exit_code == 0
+
+        content = (user_dir / "config.yml").read_text(encoding="utf-8")
+        # Active values should be uncommented.
+        assert "  github_token: ghp_fresh" in content
+        assert "  ai_provider: gemini" in content
+        # Unused values should remain commented.
+        assert "  # ai_model:" in content
+        assert "  # dry_run:" in content
+        assert "  # base_branch:" in content
+        # Should still parse as valid YAML.
+        data = yaml.safe_load(content)
+        assert data["sdlc"]["github_token"] == "ghp_fresh"
+        assert data["sdlc"]["ai_provider"] == "gemini"
