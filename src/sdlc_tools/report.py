@@ -59,7 +59,7 @@ class ReportGenerator:
         else:
             diff = get_diff(self.config.base_branch)
 
-        if not diff.strip():
+        if not diff or not diff.strip():
             log.info("No diff detected. Nothing to report.")
             return
 
