@@ -20,6 +20,8 @@ def get_current_branch() -> str:
         capture_output=True,
         text=True,
         timeout=_TIMEOUT,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error("Failed to detect current branch: %s", result.stderr.strip())
@@ -38,6 +40,8 @@ def get_diff(base_branch: str) -> str:
         capture_output=True,
         text=True,
         timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error("Failed to generate diff: %s", result.stderr.strip())
@@ -52,6 +56,8 @@ def fetch_branch(branch: str) -> None:
         capture_output=True,
         text=True,
         timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.warning("Failed to fetch origin/%s: %s", branch, result.stderr.strip())
@@ -70,6 +76,8 @@ def get_repo_url() -> str:
             capture_output=True,
             text=True,
             timeout=_TIMEOUT,
+            encoding="utf-8",
+            errors="replace",
         )
         url = result.stdout.strip()
         match = re.search(r"[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
@@ -88,6 +96,8 @@ def get_latest_commit_message() -> str:
             capture_output=True,
             text=True,
             timeout=_TIMEOUT,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -108,6 +118,8 @@ def push_current_branch(force: bool = False) -> bool:
         capture_output=True,
         text=True,
         timeout=120,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error("Git push failed: %s", result.stderr.strip())
@@ -123,6 +135,8 @@ def get_last_commit_sha() -> str:
         capture_output=True,
         text=True,
         timeout=_TIMEOUT,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error("Failed to get HEAD SHA: %s", result.stderr.strip())
@@ -142,6 +156,8 @@ def get_commit_diff(sha: str) -> str:
         capture_output=True,
         text=True,
         timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error(
