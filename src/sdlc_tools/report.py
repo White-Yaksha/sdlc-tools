@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-import subprocess
 import sys
 
 from sdlc_tools.ai import get_provider
@@ -117,49 +115,32 @@ class ReportGenerator:
         log.info("AI report generation complete.")
 
     def _create_draft_pr(self, owner: str, repo: str, branch: str) -> int | None:
-        """Create a draft PR via ``gh`` CLI to preserve developer identity."""
-        repo_full = f"{owner}/{repo}"
+        """Create a draft PR via the GitHub REST API."""
         title = get_latest_commit_message() or branch
 
         if self.config.dry_run:
-            log.info("[DRY-RUN] Would create draft PR '%s' on %s.", title, repo_full)
+            log.info("[DRY-RUN] Would create draft PR '%s' on %s/%s.", title, owner, repo)
             return None
 
         try:
-            result = subprocess.run(
-                [
-                    "gh", "pr", "create",
-                    "--repo", repo_full,
-                    "--draft",
-                    "--base", self.config.base_branch,
-                    "--head", branch,
-                    "--title", title,
-                    "--body", "Auto-generated PR created by SDLC automation.",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                encoding="utf-8",
-                errors="replace",
+            pr_number = self.client.create_pr(
+                owner,
+                repo,
+                head=branch,
+                base=self.config.base_branch,
+                title=title,
+                body="Auto-generated PR created by SDLC automation.",
+                draft=True,
             )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            log.error("Failed to run gh pr create: %s", exc)
+        except Exception as exc:
+            log.error("Failed to create draft PR: %s", exc)
             return None
 
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            if "already exists" in stderr.lower():
-                log.info("PR already exists. Retrying lookup...")
-                return self.client.find_pr(owner, repo, branch)
-            log.error("gh pr create failed: %s", stderr)
-            return None
+        if pr_number is None:
+            # POST may have been dry-run or returned error; try re-lookup
+            existing = self.client.find_pr(owner, repo, branch)
+            if existing:
+                log.info("PR already exists (#%d).", existing)
+            return existing
 
-        url = result.stdout.strip()
-        match = re.search(r"/pull/(\d+)", url)
-        if match:
-            pr_num = int(match.group(1))
-            log.info("Created draft PR #%d: %s", pr_num, url)
-            return pr_num
-
-        log.warning("PR created but could not parse number from: %s", url)
-        return None
+        return pr_number

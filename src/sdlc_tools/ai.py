@@ -33,12 +33,18 @@ class AIProvider(abc.ABC):
 
 
 # ---------------------------------------------------------------------------
-# Copilot — gh copilot CLI (existing behaviour)
+# Copilot — gh copilot CLI (requires gh CLI installed)
 # ---------------------------------------------------------------------------
 
 
 class CopilotProvider(AIProvider):
-    """Invokes ``gh copilot`` CLI via subprocess."""
+    """Invokes ``gh copilot`` CLI via subprocess.
+
+    NOTE: This is the **only** provider that requires the GitHub CLI (``gh``)
+    to be installed. All other providers use direct HTTP calls with no
+    external dependencies. If you don't have ``gh`` installed, use a
+    different provider (e.g. gemini, ollama, openai, anthropic).
+    """
 
     name = "copilot"
 
@@ -68,7 +74,11 @@ class CopilotProvider(AIProvider):
                 errors="replace",
             )
         except FileNotFoundError as exc:
-            raise RuntimeError("gh CLI not found. Install it and try again.") from exc
+            raise RuntimeError(
+                "gh CLI not found. Install it (https://cli.github.com) to use the"
+                " Copilot provider, or switch to another provider"
+                " (e.g. --provider gemini).",
+            ) from exc
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"Copilot CLI timed out after {self.timeout}s.",

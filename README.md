@@ -48,7 +48,7 @@ sdlc-tools setup
 # or: python -m sdlc_tools setup
 ```
 
-This auto-detects your GitHub token (from `gh auth token` or prompts you), validates it against the GitHub API, and saves it to `~/.sdlc/config.yml`.
+This validates your GitHub token (from `GITHUB_TOKEN` env var or prompts you), checks it against the GitHub API, and saves it to `~/.sdlc/config.yml`.
 
 Configure your AI provider at the same time:
 
@@ -62,7 +62,7 @@ sdlc-tools setup --provider ollama
 # Paid option — OpenAI
 sdlc-tools setup --provider openai --ai-key sk-your-key
 
-# Default — GitHub Copilot CLI (requires Copilot subscription + gh CLI)
+# Default — GitHub Copilot CLI (requires Copilot subscription + gh CLI installed)
 sdlc-tools setup
 ```
 
@@ -122,7 +122,7 @@ sdlc-tools supports **5 AI providers** out of the box. Choose the one that fits 
 
 | Provider | Default Model | API Key Env Var | Free? |
 |---|---|---|---|
-| `copilot` (default) | — (uses `gh copilot` CLI) | Copilot subscription | ✗ |
+| `copilot` (default) | — (uses `gh copilot` CLI) | Copilot subscription + [GitHub CLI](https://cli.github.com) | ✗ |
 | `openai` | `gpt-4o` | `OPENAI_API_KEY` | ✗ |
 | `anthropic` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` | ✗ |
 | `gemini` | `gemini-2.0-flash` | `GEMINI_API_KEY` | ✓ (free tier) |
@@ -459,6 +459,8 @@ coverage run -m pytest && coverage report --fail-under=80
 | `requests >=2.31` | HTTP client (GitHub API + AI providers) |
 | `pyyaml >=6.0` | YAML config parsing |
 | `pytest`, `responses`, `ruff` | Dev: testing, HTTP mocking, linting |
+
+**No external CLI tools required.** The only exception is the `copilot` AI provider, which requires the [GitHub CLI](https://cli.github.com) (`gh`) to be installed. All other providers (gemini, openai, anthropic, ollama) work with zero external dependencies.
 
 ---
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 import pytest
 import responses
 
@@ -29,10 +27,8 @@ class TestAuth:
 
     def test_missing_token_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="")
-            with pytest.raises(ValueError, match="No GitHub token"):
-                GitHubClient()
+        with pytest.raises(ValueError, match="No GitHub token"):
+            GitHubClient()
 
 
 class TestTagOperations:
@@ -117,3 +113,53 @@ class TestComments:
             status=200,
         )
         assert client.find_comment_by_marker("o", "r", 1, "<!-- AI-SDLC-REPORT -->") is None
+
+
+class TestCreatePR:
+    @responses.activate
+    def test_create_pr_success(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.POST,
+            f"{API}/repos/o/r/pulls",
+            json={"number": 10, "html_url": "https://github.com/o/r/pull/10"},
+            status=201,
+        )
+        pr_num = client.create_pr("o", "r", head="feat", base="main", title="My PR")
+        assert pr_num == 10
+        body = responses.calls[0].request.body
+        assert b'"draft": true' in body
+
+    @responses.activate
+    def test_create_pr_non_draft(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.POST,
+            f"{API}/repos/o/r/pulls",
+            json={"number": 11},
+            status=201,
+        )
+        pr_num = client.create_pr(
+            "o", "r", head="feat", base="main", title="PR", draft=False,
+        )
+        assert pr_num == 11
+        body = responses.calls[0].request.body
+        assert b'"draft": false' in body
+
+    def test_create_pr_dry_run(self, dry_client: GitHubClient) -> None:
+        result = dry_client.create_pr(
+            "o", "r", head="feat", base="main", title="PR",
+        )
+        assert result is None
+
+    @responses.activate
+    def test_create_pr_failure(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.POST,
+            f"{API}/repos/o/r/pulls",
+            json={"message": "Validation Failed"},
+            status=422,
+        )
+        # 422 raises HTTPError via raise_for_status in _post
+        import requests as req
+
+        with pytest.raises(req.HTTPError):
+            client.create_pr("o", "r", head="feat", base="main", title="PR")

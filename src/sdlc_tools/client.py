@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from typing import Any
 
 import requests
@@ -27,7 +26,8 @@ class GitHubClient:
         self.dry_run = dry_run
         if not self.token:
             raise ValueError(
-                "No GitHub token found. Set GITHUB_TOKEN or run 'gh auth login'."
+                "No GitHub token found. Set GITHUB_TOKEN env var"
+                " or run 'sdlc-tools setup'."
             )
 
     # ------------------------------------------------------------------
@@ -36,24 +36,10 @@ class GitHubClient:
 
     @staticmethod
     def _resolve_token() -> str:
-        """Resolve token from environment or ``gh auth token``."""
+        """Resolve token from ``GITHUB_TOKEN`` environment variable."""
         import os
 
-        token = os.environ.get("GITHUB_TOKEN", "")
-        if token:
-            return token
-        try:
-            result = subprocess.run(
-                ["gh", "auth", "token"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return ""
+        return os.environ.get("GITHUB_TOKEN", "")
 
     @staticmethod
     def validate_token(token: str) -> dict:
@@ -186,6 +172,36 @@ class GitHubClient:
             return None
         prs = resp.json()
         return prs[0]["number"] if prs else None
+
+    def create_pr(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        head: str,
+        base: str,
+        title: str,
+        body: str = "",
+        draft: bool = True,
+    ) -> int | None:
+        """Create a pull request via REST API. Returns the PR number or None."""
+        url = f"{_API_BASE}/repos/{owner}/{repo}/pulls"
+        payload = {
+            "head": head,
+            "base": base,
+            "title": title,
+            "body": body,
+            "draft": draft,
+        }
+        resp = self._post(url, json=payload)
+        if resp is None:
+            return None
+        if resp.status_code in (201, 200):
+            pr_number = resp.json().get("number")
+            log.info("Created draft PR #%s.", pr_number)
+            return pr_number
+        log.error("Failed to create PR: %s %s", resp.status_code, resp.text[:200])
+        return None
 
     # ------------------------------------------------------------------
     # PR Comments
