@@ -114,3 +114,39 @@ def push_current_branch(force: bool = False) -> bool:
         return False
     log.info("Push successful.")
     return True
+
+
+def get_last_commit_sha() -> str:
+    """Return the full SHA of HEAD."""
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT,
+    )
+    if result.returncode != 0:
+        log.error("Failed to get HEAD SHA: %s", result.stderr.strip())
+        sys.exit(1)
+    return result.stdout.strip()
+
+
+def get_short_sha(sha: str) -> str:
+    """Return the first 7 characters of a SHA."""
+    return sha[:7]
+
+
+def get_commit_diff(sha: str) -> str:
+    """Return the diff introduced by a single commit."""
+    result = subprocess.run(
+        ["git", "diff", f"{sha}~1..{sha}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        log.error(
+            "Failed to get diff for commit %s: %s",
+            sha[:7], result.stderr.strip(),
+        )
+        sys.exit(1)
+    return result.stdout
