@@ -12,8 +12,8 @@
 
 | Command | Description |
 |---|---|
-| `sdlc-tools report` | Generates an AI code impact report using your chosen provider and posts it as a styled HTML comment on the PR. |
-| `sdlc-tools tag` | Creates or updates a release tag when a PR is merged into a release branch (designed for GitHub Actions). |
+| `sdlc-tools report` | Generates an AI code impact report (full branch or single commit) and posts it as a styled HTML comment on the PR. |
+| `sdlc-tools tag` | Creates or updates a release tag **and GitHub release** when a PR is merged into a release branch (designed for GitHub Actions). |
 | `sdlc-tools setup` | Validates your GitHub token, configures your AI provider, and writes everything to `~/.sdlc/config.yml`. |
 | `sdlc-tools init` | Scaffolds `.sdlc.yml` config + GitHub Actions workflows (`ai-report.yml`, `release-tag.yml`) in the current repo. |
 
@@ -100,9 +100,21 @@ sdlc-tools init --skip-workflows
 ### 4. Use it
 
 ```bash
-# Generate AI report and post to PR
+# Generate AI report and post to PR (full branch diff)
 sdlc-tools report
 # or: python -m sdlc_tools report
+
+# Push branch and generate report in one step
+sdlc-tools report --push
+
+# Force-push + report (implies --push)
+sdlc-tools report --force-push
+
+# Analyze only the latest commit (appends as separate comment)
+sdlc-tools report --last-commit
+
+# Analyze a specific commit by SHA
+sdlc-tools report --commit abc1234
 
 # Preview without side effects
 sdlc-tools report --dry-run
@@ -120,13 +132,15 @@ sdlc-tools report -v
 
 sdlc-tools supports **5 AI providers** out of the box. Choose the one that fits your workflow and budget:
 
-| Provider | Default Model | API Key Env Var | Free? |
-|---|---|---|---|
-| `copilot` (default) | — (uses `gh copilot` CLI) | Copilot subscription + [GitHub CLI](https://cli.github.com) | ✗ |
-| `openai` | `gpt-4o` | `OPENAI_API_KEY` | ✗ |
-| `anthropic` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` | ✗ |
-| `gemini` | `gemini-2.0-flash` | `GEMINI_API_KEY` | ✓ (free tier) |
-| `ollama` | `llama3.2` | **None needed** | ✓ (fully local) |
+| Provider | Default Model | API Key Env Var | Free? | CI Support |
+|---|---|---|---|---|
+| `copilot` (default) | — (uses `gh copilot` CLI) | Copilot subscription + [GitHub CLI](https://cli.github.com) | ✗ | ⚠ Local only |
+| `openai` | `gpt-4o` | `OPENAI_API_KEY` | ✗ | ✓ |
+| `anthropic` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` | ✗ | ✓ |
+| `gemini` | `gemini-2.0-flash` | `GEMINI_API_KEY` | ✓ (free tier) | ✓ |
+| `ollama` | `llama3.2` | **None needed** | ✓ (fully local) | ⚠ Needs self-hosted runner |
+
+> **Note:** For GitHub Actions CI, use `gemini`, `openai`, or `anthropic`. The `copilot` provider requires an interactive `gh` CLI session (not available in CI). The `ollama` provider requires a self-hosted runner with Ollama running.
 
 ### API Key Resolution Order
 
@@ -175,8 +189,14 @@ Commands:
 | `--base-branch TEXT` | Base branch for diff (overrides config). |
 | `--provider TEXT` | AI provider: `copilot`, `openai`, `anthropic`, `gemini`, `ollama`. |
 | `--model TEXT` | AI model name (overrides config default). |
+| `--push` | Push the current branch to origin before generating the report. |
+| `--force-push` | Force-push the current branch (implies `--push`). |
+| `--last-commit` | Analyze only the latest commit instead of the full branch diff. |
+| `--commit SHA` | Analyze a specific commit by SHA. |
 
-**How it works:** Generates a `git diff` against the base branch → sends it to the configured AI provider with the prompt template → converts the Markdown response to styled HTML → posts it as an idempotent comment on the open PR (or creates a draft PR if none exists).
+**How it works:** Generates a `git diff` against the base branch (or a single commit) → sends it to the configured AI provider with the prompt template → converts the Markdown response to styled HTML → posts it as an idempotent comment on the open PR (or creates a draft PR if none exists).
+
+**Commit-level reports** (`--last-commit` / `--commit`): Each commit gets its own PR comment (identified by a per-commit marker). Re-running the same commit replaces its comment; different commits append separate comments. Full-branch and commit reports coexist on the same PR.
 
 ### `sdlc-tools tag`
 
@@ -185,7 +205,7 @@ Commands:
 | `--tag-name TEXT` | Tag name to create (overrides config). |
 | `--event-path TEXT` | Path to GitHub event JSON (CI only). |
 
-**How it works:** Reads the GitHub Actions PR event payload → checks if the PR was merged into a release branch (matching `release_prefix`) → creates/updates a lightweight tag. Idempotent — safe to re-run.
+**How it works:** Reads the GitHub Actions PR event payload → checks if the PR was merged into a release branch (matching `release_prefix`) → deletes any existing release and tag → creates a new lightweight tag and GitHub release with auto-generated release notes. Idempotent — safe to re-run.
 
 ### `sdlc-tools setup`
 
@@ -329,6 +349,9 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -338,7 +361,7 @@ jobs:
       - run: sdlc-tools report --base-branch ${{ github.base_ref }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AI_PROVIDER: gemini   # or: openai, anthropic, ollama, copilot
+          AI_PROVIDER: gemini   # or: openai, anthropic
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 ```
 
@@ -400,10 +423,10 @@ sdlc-tools/
 │   ├── config.py            ← 5-layer config system (dataclass + YAML + env)
 │   ├── ai.py                ← AI provider abstraction (5 providers + factory)
 │   ├── report.py            ← Report orchestrator (diff → AI → HTML → PR)
-│   ├── client.py            ← GitHub REST API client (auth, PRs, comments, tags)
-│   ├── git.py               ← Git operations (diff, branch, fetch)
+│   ├── client.py            ← GitHub REST API client (auth, PRs, comments, tags, releases)
+│   ├── git.py               ← Git operations (diff, branch, fetch, push, commit helpers)
 │   ├── html.py              ← Markdown → styled HTML converter
-│   ├── tagger.py            ← Release tag manager (event-driven)
+│   ├── tagger.py            ← Release tag + GitHub release manager (event-driven)
 │   ├── log.py               ← Structured logging setup
 │   └── prompts/
 │       ├── __init__.py      ← Prompt loader (custom file or bundled default)
@@ -426,9 +449,11 @@ sdlc-tools report
 ### Key Design Decisions
 
 - **No new dependencies for AI** — all providers use the existing `requests` library
-- **Idempotent operations** — PR comments update in place (no duplicates), tags delete-before-create
+- **Idempotent operations** — PR comments update in place (no duplicates), tags and releases delete-before-create
 - **Dry-run at every layer** — `--dry-run` skips all write operations (AI calls, API posts)
 - **Provider abstraction** — `AIProvider` ABC with `analyze(prompt, diff) → str` makes adding new providers trivial
+- **Security hardened** — API keys sent via headers (never in URLs), config files restricted to `0o600`, workflow permissions scoped to least privilege
+- **Commit-level reports** — `--last-commit` / `--commit` use per-commit markers, coexisting with full-branch reports on the same PR
 
 ---
 
@@ -444,7 +469,7 @@ pip install -e ".[dev]"
 # Lint
 ruff check src/ tests/
 
-# Test (70 tests)
+# Test (90+ tests)
 pytest --tb=short -q
 
 # Coverage (80% threshold)
