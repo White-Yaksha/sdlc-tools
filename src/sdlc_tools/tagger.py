@@ -25,22 +25,42 @@ class TagManager:
     # ------------------------------------------------------------------
 
     def ensure_tag(self, owner: str, repo: str, branch: str, tag_name: str) -> None:
-        """Create or re-create a tag pointing to the branch HEAD.
+        """Create or re-create a tag and release pointing to the branch HEAD.
 
-        Idempotent: deletes an existing tag before re-creating it.
+        Idempotent: deletes an existing release and tag before re-creating.
         """
         sha = self.client.get_ref_sha(owner, repo, f"heads/{branch}")
         log.info("Branch '%s' HEAD SHA: %s", branch, sha)
 
+        # Delete existing release first (must happen before tag deletion).
+        release_id = self.client.find_release_by_tag(owner, repo, tag_name)
+        if release_id:
+            log.info("Release for '%s' exists (ID: %d). Deleting.", tag_name, release_id)
+            self.client.delete_release(owner, repo, release_id)
+
+        # Delete existing tag.
         if self.client.tag_exists(owner, repo, tag_name):
             log.info("Tag '%s' exists. Deleting before re-creation.", tag_name)
             self.client.delete_tag(owner, repo, tag_name)
 
+        # Create tag.
         result = self.client.create_tag(owner, repo, tag_name, sha)
         if result:
             log.info("Created tag '%s' → %s", tag_name, result["object"]["sha"])
         elif self.client.dry_run:
             log.info("[DRY-RUN] Would create tag '%s' → %s", tag_name, sha)
+
+        # Create release.
+        release = self.client.create_release(
+            owner, repo, tag_name, name=tag_name,
+        )
+        if release:
+            log.info(
+                "Created release '%s' (ID: %d).",
+                tag_name, release.get("id", 0),
+            )
+        elif self.client.dry_run:
+            log.info("[DRY-RUN] Would create release '%s'.", tag_name)
 
     def handle_event(self, owner: str, repo: str) -> None:
         """Handle a GitHub Actions ``pull_request`` event.
