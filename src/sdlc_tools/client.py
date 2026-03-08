@@ -185,6 +185,10 @@ class GitHubClient:
         draft: bool = True,
     ) -> int | None:
         """Create a pull request via REST API. Returns the PR number or None."""
+        if self.dry_run:
+            log.info("[DRY-RUN] POST create PR '%s' (%s → %s)", title, head, base)
+            return None
+
         url = f"{_API_BASE}/repos/{owner}/{repo}/pulls"
         payload = {
             "head": head,
@@ -193,15 +197,27 @@ class GitHubClient:
             "body": body,
             "draft": draft,
         }
-        resp = self._post(url, json=payload)
-        if resp is None:
-            return None
+        resp = requests.post(
+            url, headers=self._headers(), json=payload, timeout=_TIMEOUT,
+        )
         if resp.status_code in (201, 200):
             pr_number = resp.json().get("number")
             log.info("Created draft PR #%s.", pr_number)
             return pr_number
-        log.error("Failed to create PR: %s %s", resp.status_code, resp.text[:200])
-        return None
+
+        # Surface the actual GitHub error for debugging.
+        try:
+            detail = resp.json().get("message", resp.text[:200])
+            errors = resp.json().get("errors", [])
+            if errors:
+                detail += " — " + "; ".join(
+                    e.get("message", str(e)) for e in errors
+                )
+        except Exception:
+            detail = resp.text[:200]
+        raise requests.HTTPError(
+            f"{resp.status_code}: {detail}", response=resp,
+        )
 
     # ------------------------------------------------------------------
     # PR Comments

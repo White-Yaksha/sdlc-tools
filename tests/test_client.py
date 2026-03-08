@@ -155,11 +155,13 @@ class TestCreatePR:
         responses.add(
             responses.POST,
             f"{API}/repos/o/r/pulls",
-            json={"message": "Validation Failed"},
+            json={
+                "message": "Validation Failed",
+                "errors": [{"message": "No commits between main and feat"}],
+            },
             status=422,
         )
-        # 422 raises HTTPError via raise_for_status in _post
         import requests as req
 
-        with pytest.raises(req.HTTPError):
+        with pytest.raises(req.HTTPError, match="No commits between main and feat"):
             client.create_pr("o", "r", head="feat", base="main", title="PR")
