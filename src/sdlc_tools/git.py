@@ -94,3 +94,23 @@ def get_latest_commit_message() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     return ""
+
+
+def push_current_branch(force: bool = False) -> bool:
+    """Push the current branch to origin. Returns True on success."""
+    branch = get_current_branch()
+    log.info("Pushing branch '%s' to origin...", branch)
+    cmd = ["git", "push", "-u", "origin", branch]
+    if force:
+        cmd.insert(2, "--force")
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        log.error("Git push failed: %s", result.stderr.strip())
+        return False
+    log.info("Push successful.")
+    return True
