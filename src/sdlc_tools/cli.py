@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -198,6 +199,9 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -372,6 +376,12 @@ def _build_user_config_template(values: dict) -> str:
     )
 
 
+def _restrict_file_permissions(path: Path) -> None:
+    """Set file to owner-only read/write (0o600) on Unix. No-op on Windows."""
+    if os.name != "nt":
+        path.chmod(0o600)
+
+
 # -----------------------------------------------------------------------
 # setup
 # -----------------------------------------------------------------------
@@ -463,10 +473,12 @@ def setup(
 
         with open(_USER_CONFIG_PATH, "w", encoding="utf-8") as fh:
             yaml.dump(existing, fh, default_flow_style=False, sort_keys=False)
+        _restrict_file_permissions(_USER_CONFIG_PATH)
     else:
         # First run — write a fully-commented template with user values filled in.
         _USER_CONFIG_PATH.write_text(
             _build_user_config_template(config_data), encoding="utf-8",
         )
+        _restrict_file_permissions(_USER_CONFIG_PATH)
 
     click.echo(f"✓ Config written to {_USER_CONFIG_PATH}")

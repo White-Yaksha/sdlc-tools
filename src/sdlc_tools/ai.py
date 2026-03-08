@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import os
+import re
 import subprocess
 import tempfile
 from typing import TYPE_CHECKING
@@ -31,6 +32,14 @@ class AIProvider(abc.ABC):
     def analyze(self, prompt: str, diff: str) -> str:
         """Send *prompt + diff* to the AI backend and return Markdown."""
 
+    @property
+    def display_name(self) -> str:
+        """Human-readable provider + model label for report metadata."""
+        model = getattr(self, "model", None)
+        if model:
+            return f"{self.name} ({model})"
+        return self.name
+
 
 # ---------------------------------------------------------------------------
 # Copilot — gh copilot CLI (requires gh CLI installed)
@@ -48,25 +57,29 @@ class CopilotProvider(AIProvider):
 
     name = "copilot"
 
-    def __init__(self, timeout: int = 120) -> None:
+    def __init__(self, model: str = "", timeout: int = 120) -> None:
+        self.model = model
         self.timeout = timeout
 
     def analyze(self, prompt: str, diff: str) -> str:
         full_prompt = prompt + diff
-        tmp_path = ""
+        tmp_path = tempfile.mktemp(suffix=".txt")
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8",
-            ) as tmp:
+            fd = os.open(
+                tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp:
                 tmp.write(full_prompt)
-                tmp_path = tmp.name
 
             short_prompt = (
                 f"Read the file at {tmp_path} and follow the instructions inside it. "
                 "Return only the Markdown report, nothing else."
             )
+            cmd = ["gh", "copilot", "--", "-p", short_prompt, "--allow-all-tools"]
+            if self.model:
+                cmd.extend(["--model", self.model])
             result = subprocess.run(
-                ["gh", "copilot", "--", "-p", short_prompt, "--allow-all-tools"],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -90,7 +103,17 @@ class CopilotProvider(AIProvider):
         if result.returncode != 0:
             raise RuntimeError(f"Copilot CLI failed: {result.stderr.strip()}")
 
-        return (result.stdout or "").strip()
+        return self._clean_copilot_output((result.stdout or "").strip())
+
+    # Copilot CLI emits tool-use progress lines (e.g. "● Read ...",
+    # "└ 818 lines read") that pollute the Markdown report. Strip them.
+    _STATUS_LINE_RE = re.compile(r"^\s*[●○◉◎├└│┌┐┘┤┬┴┼─╭╰▸▹►▶⏵⮕→⟶]\s")
+
+    @classmethod
+    def _clean_copilot_output(cls, text: str) -> str:
+        lines = text.splitlines()
+        cleaned = [ln for ln in lines if not cls._STATUS_LINE_RE.match(ln)]
+        return "\n".join(cleaned).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +243,6 @@ class GeminiProvider(AIProvider):
     def analyze(self, prompt: str, diff: str) -> str:
         url = (
             f"{self.base_url}/v1beta/models/{self.model}:generateContent"
-            f"?key={self.api_key}"
         )
         payload = {
             "contents": [{"parts": [{"text": prompt.rstrip() + "\n\n" + diff}]}],
@@ -228,7 +250,10 @@ class GeminiProvider(AIProvider):
         }
         resp = requests.post(
             url,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.api_key,
+            },
             json=payload,
             timeout=self.timeout,
         )
@@ -337,7 +362,7 @@ def get_provider(config: SdlcConfig) -> AIProvider:
     base_url = config.ai_base_url
 
     if name == "copilot":
-        return CopilotProvider(timeout=timeout)
+        return CopilotProvider(model=model, timeout=timeout)
 
     if name == "ollama":
         return OllamaProvider(model=model, base_url=base_url, timeout=timeout)
