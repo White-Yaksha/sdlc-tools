@@ -48,6 +48,22 @@ def _build_config(ctx: click.Context, extra: dict | None = None) -> SdlcConfig:
     return load_config(config_path=ctx.obj["config_path"], cli_overrides=overrides)
 
 
+def _log_config(config: SdlcConfig, command: str) -> None:
+    """Log key resolved config values for debugging."""
+    click.echo(f"[CONFIG] command={command}")
+    click.echo(f"[CONFIG] base_branch={config.base_branch}")
+    click.echo(f"[CONFIG] ai_provider={config.ai_provider}")
+    if config.ai_model:
+        click.echo(f"[CONFIG] ai_model={config.ai_model}")
+    click.echo(f"[CONFIG] release_prefix={config.release_prefix}")
+    if config.release_tag_name:
+        click.echo(f"[CONFIG] release_tag_name={config.release_tag_name}")
+    click.echo(f"[CONFIG] max_diff_length={config.max_diff_length}")
+    click.echo(f"[CONFIG] dry_run={config.dry_run}")
+    if config.github_repository:
+        click.echo(f"[CONFIG] repository={config.github_repository}")
+
+
 # -----------------------------------------------------------------------
 # report
 # -----------------------------------------------------------------------
@@ -74,6 +90,7 @@ def report(
         "ai_provider": ai_provider,
         "ai_model": ai_model,
     })
+    _log_config(config, "report")
 
     try:
         client = GitHubClient(token=config.github_token, dry_run=config.dry_run)
@@ -103,6 +120,7 @@ def tag(ctx: click.Context, tag_name: str | None, event_path: str | None) -> Non
         "release_tag_name": tag_name,
         "github_event_path": event_path,
     })
+    _log_config(config, "tag")
 
     try:
         client = GitHubClient(token=config.github_token, dry_run=config.dry_run)
