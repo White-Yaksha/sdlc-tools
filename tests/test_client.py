@@ -165,3 +165,56 @@ class TestCreatePR:
 
         with pytest.raises(req.HTTPError, match="No commits between main and feat"):
             client.create_pr("o", "r", head="feat", base="main", title="PR")
+
+
+# ---------------------------------------------------------------------------
+# Releases
+# ---------------------------------------------------------------------------
+
+
+class TestReleases:
+
+    @responses.activate
+    def test_find_release_by_tag_found(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.GET,
+            f"{API}/repos/o/r/releases/tags/v1.0.0",
+            json={"id": 42},
+            status=200,
+        )
+        assert client.find_release_by_tag("o", "r", "v1.0.0") == 42
+
+    @responses.activate
+    def test_find_release_by_tag_not_found(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.GET,
+            f"{API}/repos/o/r/releases/tags/v1.0.0",
+            json={"message": "Not Found"},
+            status=404,
+        )
+        assert client.find_release_by_tag("o", "r", "v1.0.0") is None
+
+    @responses.activate
+    def test_delete_release(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.DELETE,
+            f"{API}/repos/o/r/releases/42",
+            status=204,
+        )
+        client.delete_release("o", "r", 42)
+
+    @responses.activate
+    def test_create_release(self, client: GitHubClient) -> None:
+        responses.add(
+            responses.POST,
+            f"{API}/repos/o/r/releases",
+            json={"id": 99, "tag_name": "v1.0.0"},
+            status=201,
+        )
+        result = client.create_release("o", "r", "v1.0.0", name="v1.0.0")
+        assert result is not None
+        assert result["id"] == 99
+
+    def test_create_release_dry_run(self, dry_client: GitHubClient) -> None:
+        result = dry_client.create_release("o", "r", "v1.0.0")
+        assert result is None

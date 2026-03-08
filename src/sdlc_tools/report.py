@@ -7,7 +7,14 @@ import sys
 from sdlc_tools.ai import get_provider
 from sdlc_tools.client import GitHubClient
 from sdlc_tools.config import SdlcConfig
-from sdlc_tools.git import get_current_branch, get_diff, get_latest_commit_message, get_repo_url
+from sdlc_tools.git import (
+    get_commit_diff,
+    get_current_branch,
+    get_diff,
+    get_latest_commit_message,
+    get_repo_url,
+    get_short_sha,
+)
 from sdlc_tools.html import convert_markdown_to_html
 from sdlc_tools.log import get_logger
 
@@ -25,8 +32,12 @@ class ReportGenerator:
     # Public API
     # ------------------------------------------------------------------
 
-    def run(self) -> None:
-        """Full workflow: generate diff → AI analysis → post to PR."""
+    def run(self, *, commit_sha: str | None = None) -> None:
+        """Full workflow: generate diff → AI analysis → post to PR.
+
+        If *commit_sha* is provided, analyses only that single commit and
+        appends the report as a separate PR comment (idempotent per commit).
+        """
         repo_full = self.config.github_repository or get_repo_url()
         if not repo_full or "/" not in repo_full:
             log.error("Could not determine repository (owner/repo).")
@@ -36,12 +47,18 @@ class ReportGenerator:
         branch = get_current_branch()
         log.info("Branch: %s", branch)
 
-        if branch == self.config.base_branch:
+        if not commit_sha and branch == self.config.base_branch:
             log.info("On base branch '%s'. Nothing to report.", self.config.base_branch)
             return
 
-        # Generate diff.
-        diff = get_diff(self.config.base_branch)
+        # Generate diff — full branch or single commit.
+        if commit_sha:
+            short = get_short_sha(commit_sha)
+            log.info("Commit mode: %s", short)
+            diff = get_commit_diff(commit_sha)
+        else:
+            diff = get_diff(self.config.base_branch)
+
         if not diff.strip():
             log.info("No diff detected. Nothing to report.")
             return
@@ -77,23 +94,38 @@ class ReportGenerator:
             log.warning("AI provider returned empty response. Skipping report.")
             return
 
-        # Convert to HTML.
+        # Convert to HTML — commit reports get a distinct title and marker.
         provider_label = provider.display_name
+        if commit_sha:
+            short = get_short_sha(commit_sha)
+            title = f"\U0001f50d Commit Impact Report \u2014 {short}"
+            marker = f"<!-- AI-SDLC-COMMIT-{short} -->"
+            subtitle = f"Commit: {commit_sha} | Provider: {provider_label}"
+        else:
+            title = "\U0001f50d AI Code Impact Report"
+            marker = self.config.comment_marker
+            subtitle = f"Provider: {provider_label}"
+
         html_report = convert_markdown_to_html(
             markdown_report,
-            marker=self.config.comment_marker,
-            subtitle=f"Provider: {provider_label}",
+            title=title,
+            marker=marker,
+            subtitle=subtitle,
         )
 
         # Post to PR.
-        self._post_to_pr(owner, repo, branch, html_report)
+        self._post_to_pr(owner, repo, branch, html_report, marker=marker)
 
     # ------------------------------------------------------------------
     # PR interaction
     # ------------------------------------------------------------------
 
-    def _post_to_pr(self, owner: str, repo: str, branch: str, html: str) -> None:
+    def _post_to_pr(
+        self, owner: str, repo: str, branch: str, html: str,
+        *, marker: str | None = None,
+    ) -> None:
         """Find (or create) the PR and post/update the AI report comment."""
+        comment_marker = marker or self.config.comment_marker
         pr_number = self.client.find_pr(owner, repo, branch)
 
         if pr_number is None:
@@ -107,7 +139,7 @@ class ReportGenerator:
 
         # Post or update comment (idempotent via marker).
         existing_id = self.client.find_comment_by_marker(
-            owner, repo, pr_number, self.config.comment_marker,
+            owner, repo, pr_number, comment_marker,
         )
         if existing_id:
             self.client.update_comment(owner, repo, existing_id, html)

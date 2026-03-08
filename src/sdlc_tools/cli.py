@@ -79,6 +79,10 @@ def _log_config(config: SdlcConfig, command: str) -> None:
               help="Push the current branch to origin before generating the report.")
 @click.option("--force-push", "force_push", is_flag=True, default=False,
               help="Force-push the current branch (implies --push).")
+@click.option("--last-commit", "last_commit", is_flag=True, default=False,
+              help="Analyze only the latest commit instead of the full branch diff.")
+@click.option("--commit", "commit_sha", default=None,
+              help="Analyze a specific commit by SHA.")
 @click.pass_context
 def report(
     ctx: click.Context,
@@ -87,10 +91,19 @@ def report(
     ai_model: str | None,
     push_first: bool,
     force_push: bool,
+    last_commit: bool,
+    commit_sha: str | None,
 ) -> None:
     """Generate an AI code impact report and post it to the PR."""
     from sdlc_tools.client import GitHubClient
     from sdlc_tools.report import ReportGenerator
+
+    if last_commit and commit_sha:
+        click.echo(
+            "[ERROR] --last-commit and --commit are mutually exclusive.",
+            err=True,
+        )
+        sys.exit(1)
 
     if push_first or force_push:
         from sdlc_tools.git import push_current_branch
@@ -98,6 +111,13 @@ def report(
         if not push_current_branch(force=force_push):
             click.echo("[ERROR] Git push failed. Aborting report.", err=True)
             sys.exit(1)
+
+    # Resolve commit SHA for commit-level reports.
+    resolved_sha: str | None = commit_sha
+    if last_commit:
+        from sdlc_tools.git import get_last_commit_sha
+
+        resolved_sha = get_last_commit_sha()
 
     config = _build_config(ctx, {
         "base_branch": base_branch,
@@ -113,7 +133,7 @@ def report(
         sys.exit(1)
 
     generator = ReportGenerator(client, config)
-    generator.run()
+    generator.run(commit_sha=resolved_sha)
 
 
 # -----------------------------------------------------------------------
