@@ -75,16 +75,29 @@ def _log_config(config: SdlcConfig, command: str) -> None:
 @click.option("--provider", "ai_provider", default=None,
               help="AI provider: copilot, openai, anthropic, gemini, ollama.")
 @click.option("--model", "ai_model", default=None, help="AI model name (overrides config).")
+@click.option("--push", "push_first", is_flag=True, default=False,
+              help="Push the current branch to origin before generating the report.")
+@click.option("--force-push", "force_push", is_flag=True, default=False,
+              help="Force-push the current branch (implies --push).")
 @click.pass_context
 def report(
     ctx: click.Context,
     base_branch: str | None,
     ai_provider: str | None,
     ai_model: str | None,
+    push_first: bool,
+    force_push: bool,
 ) -> None:
     """Generate an AI code impact report and post it to the PR."""
     from sdlc_tools.client import GitHubClient
     from sdlc_tools.report import ReportGenerator
+
+    if push_first or force_push:
+        from sdlc_tools.git import push_current_branch
+
+        if not push_current_branch(force=force_push):
+            click.echo("[ERROR] Git push failed. Aborting report.", err=True)
+            sys.exit(1)
 
     config = _build_config(ctx, {
         "base_branch": base_branch,
@@ -171,7 +184,7 @@ sdlc:
   # comment_marker: "<!-- AI-SDLC-REPORT -->"  # HTML marker for idempotent PR comments
 
   # ── AI Provider ───────────────────────────────────────────
-  # ai_provider: copilot              # copilot | openai | anthropic | gemini | ollama
+  # ai_provider: copilot              # copilot & ollama: local only; CI: openai|anthropic|gemini
   # ai_model: ""                      # Model name (provider default if empty)
   # ai_api_key: ""                    # API key (prefer env var or ~/.sdlc/config.yml)
   # ai_base_url: ""                   # Custom endpoint / proxy URL
@@ -222,8 +235,8 @@ jobs:
           # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           # AI_PROVIDER: anthropic
           # ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # AI_PROVIDER: copilot       # requires gh CLI installed
-          # AI_PROVIDER: ollama        # needs self-hosted runner
+          # AI_PROVIDER: copilot       # ⚠ LOCAL ONLY — not supported in CI
+          # AI_PROVIDER: ollama        # ⚠ LOCAL ONLY — needs self-hosted runner with Ollama
 
           # ── AI Model (optional, uses provider default if empty)
           # AI_MODEL: ""
