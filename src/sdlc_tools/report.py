@@ -78,9 +78,11 @@ class ReportGenerator:
             return
 
         # Convert to HTML.
+        provider_label = provider.display_name
         html_report = convert_markdown_to_html(
             markdown_report,
             marker=self.config.comment_marker,
+            subtitle=f"Provider: {provider_label}",
         )
 
         # Post to PR.
@@ -133,7 +135,20 @@ class ReportGenerator:
                 draft=True,
             )
         except Exception as exc:
-            log.error("Failed to create draft PR: %s", exc)
+            err = str(exc)
+            log.error("Failed to create draft PR: %s", err)
+            if "'head'" in err and "invalid" in err:
+                log.error(
+                    "Hint: Branch '%s' may not exist on the remote. "
+                    "Run 'git push -u origin %s' first.",
+                    branch, branch,
+                )
+            elif "'base'" in err and "invalid" in err:
+                log.error(
+                    "Hint: Base branch '%s' may not exist. "
+                    "Check your base_branch config.",
+                    self.config.base_branch,
+                )
             return None
 
         if pr_number is None:

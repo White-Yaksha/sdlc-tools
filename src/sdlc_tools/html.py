@@ -13,6 +13,7 @@ def convert_markdown_to_html(
     *,
     title: str = _DEFAULT_TITLE,
     marker: str = _DEFAULT_MARKER,
+    subtitle: str = "",
 ) -> str:
     """Convert Markdown to HTML wrapped in a styled container.
 
@@ -64,9 +65,16 @@ def convert_markdown_to_html(
             processed.append(line)
     html = "\n".join(processed)
 
+    subtitle_html = (
+        f'  <p style="color: #888; font-size: 0.85em; margin-top: -8px;">'
+        f"{subtitle}</p>\n"
+        if subtitle else ""
+    )
+
     return (
         '<div style="font-family: Arial, sans-serif; line-height: 1.6;">\n'
         f"  <h2>{title}</h2>\n"
+        f"{subtitle_html}"
         f"  {marker}\n"
         f"  {html}\n"
         "</div>"

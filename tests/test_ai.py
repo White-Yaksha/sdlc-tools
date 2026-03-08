@@ -7,6 +7,7 @@ import responses
 
 from sdlc_tools.ai import (
     AnthropicProvider,
+    CopilotProvider,
     GeminiProvider,
     OllamaProvider,
     OpenAIProvider,
@@ -189,6 +190,19 @@ class TestGetProvider:
         cfg = SdlcConfig(ai_provider="copilot")
         provider = get_provider(cfg)
         assert provider.name == "copilot"
+
+    def test_copilot_cleans_status_lines(self) -> None:
+        raw = (
+            "● Read ~\\AppData\\Local\\Temp\\tmpfths2af3.txt\n"
+            "└ 818 lines read\n"
+            "# Impact Report\n"
+            "Some content here.\n"
+        )
+        cleaned = CopilotProvider._clean_copilot_output(raw)
+        assert "● Read" not in cleaned
+        assert "└ 818" not in cleaned
+        assert "# Impact Report" in cleaned
+        assert "Some content here." in cleaned
 
     def test_openai_with_key(self) -> None:
         cfg = SdlcConfig(ai_provider="openai", ai_api_key="sk-test")
