@@ -8,6 +8,7 @@ from sdlc_tools.ai import get_provider
 from sdlc_tools.client import GitHubClient
 from sdlc_tools.config import SdlcConfig
 from sdlc_tools.git import (
+    get_branch_commits,
     get_commit_diff,
     get_current_branch,
     get_diff,
@@ -118,6 +119,107 @@ class ReportGenerator:
 
     # ------------------------------------------------------------------
     # PR interaction
+    # ------------------------------------------------------------------
+
+    def run_commit_wise(self) -> None:
+        """Analyze each commit individually, combine into a single full report.
+
+        Iterates over all commits between ``origin/<base_branch>`` and
+        ``HEAD``, runs AI analysis on each commit's diff, then merges the
+        per-commit Markdown sections into one HTML report posted with the
+        standard full-report marker (``comment_marker``), making it
+        idempotent against a regular ``run()`` full-report.
+        """
+        repo_full = self.config.github_repository or get_repo_url()
+        if not repo_full or "/" not in repo_full:
+            log.error("Could not determine repository (owner/repo).")
+            sys.exit(1)
+
+        owner, repo = repo_full.split("/", 1)
+        branch = get_current_branch()
+        log.info("Branch: %s", branch)
+
+        if branch == self.config.base_branch:
+            log.info("On base branch '%s'. Nothing to report.", self.config.base_branch)
+            return
+
+        commits = get_branch_commits(self.config.base_branch)
+        if not commits:
+            log.info("No commits found between base and HEAD. Nothing to report.")
+            return
+
+        log.info("Found %d commit(s) to analyze.", len(commits))
+
+        try:
+            provider = get_provider(self.config)
+        except ValueError as exc:
+            log.error("%s", exc)
+            sys.exit(1)
+
+        log.info("Using AI provider: %s", provider.name)
+
+        max_len = self.config.max_diff_length
+        markdown_sections: list[str] = []
+
+        for idx, (sha, subject) in enumerate(commits, 1):
+            short = get_short_sha(sha)
+            log.info("[%d/%d] Analyzing commit %s: %s", idx, len(commits), short, subject)
+
+            diff = get_commit_diff(sha)
+            if not diff or not diff.strip():
+                log.info("  No diff for commit %s. Skipping.", short)
+                continue
+
+            if len(diff) > max_len:
+                log.info("  Truncating diff from %d to %d characters.", len(diff), max_len)
+                diff = diff[:max_len] + "\n\n... (diff truncated)"
+
+            if self.config.dry_run:
+                log.info(
+                    "[DRY-RUN] Would invoke %s for commit %s with %d-char prompt.",
+                    provider.name, short, len(diff),
+                )
+                continue
+
+            try:
+                md = provider.analyze(self.config.prompt_template, diff)
+            except RuntimeError as exc:
+                log.error("AI analysis failed for commit %s: %s", short, exc)
+                continue
+
+            if not md:
+                log.warning("AI returned empty response for commit %s. Skipping.", short)
+                continue
+
+            markdown_sections.append(
+                f"## Commit `{short}` — {subject}\n\n{md}"
+            )
+
+        if self.config.dry_run:
+            log.info("[DRY-RUN] Would post consolidated commit-wise report.")
+            return
+
+        if not markdown_sections:
+            log.warning("No commit analyses produced. Skipping report.")
+            return
+
+        combined_markdown = "\n\n---\n\n".join(markdown_sections)
+        provider_label = provider.display_name
+        title = "\U0001f50d AI Code Impact Report (Commit-Wise)"
+        marker = self.config.comment_marker
+        subtitle = f"Provider: {provider_label} | Commits: {len(markdown_sections)}"
+
+        html_report = convert_markdown_to_html(
+            combined_markdown,
+            title=title,
+            marker=marker,
+            subtitle=subtitle,
+        )
+
+        self._post_to_pr(owner, repo, branch, html_report, marker=marker)
+
+    # ------------------------------------------------------------------
+    # PR interaction (continued)
     # ------------------------------------------------------------------
 
     def _post_to_pr(

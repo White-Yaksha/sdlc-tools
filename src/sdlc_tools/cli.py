@@ -83,6 +83,8 @@ def _log_config(config: SdlcConfig, command: str) -> None:
               help="Analyze only the latest commit instead of the full branch diff.")
 @click.option("--commit", "commit_sha", default=None,
               help="Analyze a specific commit by SHA.")
+@click.option("--commit-wise", "commit_wise", is_flag=True, default=False,
+              help="Analyze each commit individually and post a consolidated full report.")
 @click.pass_context
 def report(
     ctx: click.Context,
@@ -93,14 +95,16 @@ def report(
     force_push: bool,
     last_commit: bool,
     commit_sha: str | None,
+    commit_wise: bool,
 ) -> None:
     """Generate an AI code impact report and post it to the PR."""
     from sdlc_tools.client import GitHubClient
     from sdlc_tools.report import ReportGenerator
 
-    if last_commit and commit_sha:
+    exclusive_count = sum([last_commit, bool(commit_sha), commit_wise])
+    if exclusive_count > 1:
         click.echo(
-            "[ERROR] --last-commit and --commit are mutually exclusive.",
+            "[ERROR] --last-commit, --commit, and --commit-wise are mutually exclusive.",
             err=True,
         )
         sys.exit(1)
@@ -133,7 +137,10 @@ def report(
         sys.exit(1)
 
     generator = ReportGenerator(client, config)
-    generator.run(commit_sha=resolved_sha)
+    if commit_wise:
+        generator.run_commit_wise()
+    else:
+        generator.run(commit_sha=resolved_sha)
 
 
 # -----------------------------------------------------------------------
