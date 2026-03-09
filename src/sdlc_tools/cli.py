@@ -144,6 +144,65 @@ def report(
 
 
 # -----------------------------------------------------------------------
+# review
+# -----------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--base-branch", default=None, help="Base branch for diff (overrides config).")
+@click.option("--provider", "ai_provider", default=None,
+              help="AI provider: copilot, openai, anthropic, gemini, ollama.")
+@click.option("--model", "ai_model", default=None, help="AI model name (overrides config).")
+@click.option("--push", "push_first", is_flag=True, default=False,
+              help="Push the current branch to origin before generating the review.")
+@click.option("--force-push", "force_push", is_flag=True, default=False,
+              help="Force-push the current branch (implies --push).")
+@click.option(
+    "--persona",
+    "personas",
+    multiple=True,
+    help="Reviewer persona. Repeat for multiple; use 'all' for all personas. "
+         "If omitted, primary persona is used.",
+)
+@click.pass_context
+def review(
+    ctx: click.Context,
+    base_branch: str | None,
+    ai_provider: str | None,
+    ai_model: str | None,
+    push_first: bool,
+    force_push: bool,
+    personas: tuple[str, ...],
+) -> None:
+    """Generate an AI review report (persona-based) and post it to the PR."""
+    from sdlc_tools.client import GitHubClient
+    from sdlc_tools.report import ReportGenerator
+
+    if push_first or force_push:
+        from sdlc_tools.git import push_current_branch
+
+        if not push_current_branch(force=force_push):
+            click.echo("[ERROR] Git push failed. Aborting review.", err=True)
+            sys.exit(1)
+
+    config = _build_config(ctx, {
+        "base_branch": base_branch,
+        "ai_provider": ai_provider,
+        "ai_model": ai_model,
+    })
+    _log_config(config, "review")
+
+    try:
+        client = GitHubClient(token=config.github_token, dry_run=config.dry_run)
+    except ValueError as exc:
+        click.echo(f"[ERROR] {exc}", err=True)
+        sys.exit(1)
+
+    generator = ReportGenerator(client, config)
+    generator.review(personas=list(personas))
+
+
+# -----------------------------------------------------------------------
 # tag
 # -----------------------------------------------------------------------
 
@@ -209,6 +268,7 @@ sdlc:
   # ── Report Settings ───────────────────────────────────────
   # max_diff_length: 20000            # Truncate diff beyond this (chars)
   # comment_marker: "<!-- AI-SDLC-REPORT -->"  # HTML marker for idempotent PR comments
+  # review_comment_marker: "<!-- AI-SDLC-REVIEW -->"
 
   # ── AI Provider ───────────────────────────────────────────
   # ai_provider: copilot              # copilot & ollama: local only; CI: openai|anthropic|gemini
@@ -219,6 +279,9 @@ sdlc:
 
   # ── Prompt ────────────────────────────────────────────────
   # prompt_file: ""                   # Path to custom prompt (empty → bundled default)
+  # instruction_root: "instructions"  # Base directory for report/review instruction markdown
+  # risk_rules_file: "config/risk_rules.yaml"
+  # review_personas_file: "config/review_personas.yaml"
 
   # ── Behaviour ─────────────────────────────────────────────
   # dry_run: false                    # Preview without side effects
@@ -319,6 +382,82 @@ jobs:
 """,
 }
 
+_INIT_FILE_TEMPLATES: dict[str, str] = {
+    "config/risk_rules.yaml": """\
+high_risk_paths:
+  - database/
+  - migrations/
+  - auth/
+
+file_type_rules:
+  ".sql": "database schema change"
+  ".yaml": "config modification"
+
+dependency_files:
+  - requirements.txt
+  - package.json
+  - pyproject.toml
+
+patterns:
+  - name: schema_change
+    regex: ALTER TABLE|CREATE TABLE|DROP TABLE
+  - name: retry_logic
+    regex: retry|backoff|timeout
+""",
+    "config/review_personas.yaml": """\
+primary_persona: security
+personas:
+  security: instructions/review/personas/security.md
+  performance: instructions/review/personas/performance.md
+  architecture: instructions/review/personas/architecture.md
+""",
+    "instructions/report/report_base.md": """\
+# Report Mode
+
+You are generating a pull request change impact report for the PR author.
+Focus on:
+- high-level summary of what changed
+- potential risks and affected components
+- rollout/compatibility considerations
+- test and validation impact
+
+Be concise, structured, and actionable.
+""",
+    "instructions/review/review_base.md": """\
+# Review Mode
+
+You are generating reviewer feedback for a pull request.
+Focus on:
+- correctness and logic risks
+- security/stability/performance concerns
+- missing tests and failure scenarios
+- concrete recommendations
+
+Return clear, prioritized, reviewer-ready feedback.
+""",
+    "instructions/review/personas/security.md": """\
+Prioritize security concerns:
+- authN/authZ boundaries
+- secrets handling
+- injection vectors and input validation
+- privilege escalation and data exposure
+""",
+    "instructions/review/personas/performance.md": """\
+Prioritize performance concerns:
+- unnecessary repeated work
+- expensive I/O or queries
+- memory and CPU hotspots
+- scalability implications under load
+""",
+    "instructions/review/personas/architecture.md": """\
+Prioritize architecture concerns:
+- layering and boundaries
+- coupling and cohesion
+- extensibility and maintainability
+- consistency with existing patterns
+""",
+}
+
 # -----------------------------------------------------------------------
 # init
 # -----------------------------------------------------------------------
@@ -331,7 +470,7 @@ jobs:
 )
 @click.pass_context
 def init(ctx: click.Context, skip_workflows: bool) -> None:
-    """Create .sdlc.yml and GitHub Actions workflows in the current directory."""
+    """Create .sdlc.yml, analysis templates, and optional workflow files."""
     created: list[str] = []
 
     # --- .sdlc.yml ---
@@ -342,6 +481,17 @@ def init(ctx: click.Context, skip_workflows: bool) -> None:
         sdlc_yml.write_text(_SDLC_YML_TEMPLATE, encoding="utf-8")
         created.append(str(sdlc_yml))
         click.echo(f"  create  {sdlc_yml}")
+
+    # --- analysis config + instruction files ---
+    for rel_path, content in _INIT_FILE_TEMPLATES.items():
+        target = Path.cwd() / Path(rel_path)
+        if target.exists():
+            click.echo(f"  skip  {rel_path} (already exists)")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        created.append(str(target))
+        click.echo(f"  create  {rel_path}")
 
     # --- GitHub Actions workflows ---
     if not skip_workflows:
@@ -408,6 +558,12 @@ def _build_user_config_template(values: dict) -> str:
         "  # ── Report Settings ───────────────────────────────────\n"
         "  # max_diff_length: 20000\n"
         '  # comment_marker: "<!-- AI-SDLC-REPORT -->"\n'
+        '  # review_comment_marker: "<!-- AI-SDLC-REVIEW -->"\n'
+        "\n"
+        "  # ── Instruction & Analyzer Files ─────────────────────\n"
+        '  # instruction_root: "instructions"\n'
+        '  # risk_rules_file: "config/risk_rules.yaml"\n'
+        '  # review_personas_file: "config/review_personas.yaml"\n'
         "\n"
         "  # ── Behaviour ─────────────────────────────────────────\n"
         "  # dry_run: false\n"

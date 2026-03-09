@@ -14,6 +14,7 @@ _DEFAULT_CONFIG_FILENAME = ".sdlc.yml"
 _USER_CONFIG_DIR = Path.home() / ".sdlc"
 _USER_CONFIG_PATH = _USER_CONFIG_DIR / "config.yml"
 _COMMENT_MARKER = "<!-- AI-SDLC-REPORT -->"
+_REVIEW_COMMENT_MARKER = "<!-- AI-SDLC-REVIEW -->"
 
 
 @dataclass
@@ -25,6 +26,7 @@ class SdlcConfig:
     release_tag_name: str = ""
     max_diff_length: int = 20_000
     comment_marker: str = _COMMENT_MARKER
+    review_comment_marker: str = _REVIEW_COMMENT_MARKER
     dry_run: bool = False
     verbose: bool = False
     log_file: str = ""
@@ -40,6 +42,9 @@ class SdlcConfig:
     ai_api_key: str = ""
     ai_base_url: str = ""
     ai_timeout: int = 120
+    instruction_root: str = "instructions"
+    risk_rules_file: str = "config/risk_rules.yaml"
+    review_personas_file: str = "config/review_personas.yaml"
     # Resolved prompt template (populated in __post_init__).
     prompt_template: str = field(default="", repr=False)
 
@@ -81,6 +86,7 @@ def _load_env_overrides() -> dict:
         "RELEASE_TAG_NAME": "release_tag_name",
         "MAX_DIFF_LENGTH": "max_diff_length",
         "COMMENT_MARKER": "comment_marker",
+        "REVIEW_COMMENT_MARKER": "review_comment_marker",
         "GITHUB_TOKEN": "github_token",
         "GITHUB_REPOSITORY": "github_repository",
         "GITHUB_EVENT_NAME": "github_event_name",
@@ -90,6 +96,9 @@ def _load_env_overrides() -> dict:
         "AI_API_KEY": "ai_api_key",
         "AI_BASE_URL": "ai_base_url",
         "AI_TIMEOUT": "ai_timeout",
+        "INSTRUCTION_ROOT": "instruction_root",
+        "RISK_RULES_FILE": "risk_rules_file",
+        "REVIEW_PERSONAS_FILE": "review_personas_file",
     }
     overrides: dict = {}
     for env_key, config_key in mapping.items():
