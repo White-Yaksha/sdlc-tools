@@ -12,10 +12,11 @@
 
 | Command | Description |
 |---|---|
-| `sdlc-tools report` | Generates an AI code impact report (full branch or single commit) and posts it as a styled HTML comment on the PR. |
+| `sdlc-tools report` | Generates an AI code impact report (full branch, single commit, or commit-wise) and posts it as a styled HTML comment on the PR. |
+| `sdlc-tools review` | Generates a persona-based AI code review report and posts reviewer feedback to the PR. |
 | `sdlc-tools tag` | Creates or updates a release tag **and GitHub release** when a PR is merged into a release branch (designed for GitHub Actions). |
 | `sdlc-tools setup` | Validates your GitHub token, configures your AI provider, and writes everything to `~/.sdlc/config.yml`. |
-| `sdlc-tools init` | Scaffolds `.sdlc.yml` config + GitHub Actions workflows (`ai-report.yml`, `release-tag.yml`) in the current repo. |
+| `sdlc-tools init` | Scaffolds `.sdlc.yml`, analyzer/instruction config, and GitHub Actions workflows in the current repo. |
 
 ---
 
@@ -74,11 +75,16 @@ sdlc-tools init
 # or: python -m sdlc_tools init
 ```
 
-This creates **three files** (skipping any that already exist):
+This creates `.sdlc.yml`, instruction/config scaffolding, and workflows (skipping existing files):
 
 | File | Purpose |
 |---|---|
 | `.sdlc.yml` | Project-level settings (committed to git) |
+| `config/risk_rules.yaml` | Rule-engine configuration for risk analyzer signals |
+| `config/review_personas.yaml` | Persona mapping + primary persona for review mode |
+| `instructions/report/report_base.md` | Report-mode base instruction |
+| `instructions/review/review_base.md` | Review-mode base instruction |
+| `instructions/review/personas/*.md` | Persona instruction files (security/performance/architecture) |
 | `.github/workflows/ai-report.yml` | AI code impact report on every PR |
 | `.github/workflows/release-tag.yml` | Auto-tag on PR merge into `releases/**` |
 
@@ -115,6 +121,16 @@ sdlc-tools report --last-commit
 
 # Analyze a specific commit by SHA
 sdlc-tools report --commit abc1234
+
+# Analyze each commit separately and publish one consolidated full report
+sdlc-tools report --commit-wise
+
+# Generate persona-based reviewer feedback (defaults to primary persona)
+sdlc-tools review
+
+# Run review with explicit persona(s) or all personas
+sdlc-tools review --persona security
+sdlc-tools review --persona all
 
 # Preview without side effects
 sdlc-tools report --dry-run
@@ -178,6 +194,7 @@ Options:
 Commands:
   init    Create a .sdlc.yml project config file.
   report  Generate an AI code impact report and post to PR.
+  review  Generate a persona-based AI code review report and post to PR.
   setup   Set up user-level config at ~/.sdlc/config.yml.
   tag     Create or update a release tag (CI workflow).
 ```
@@ -193,10 +210,24 @@ Commands:
 | `--force-push` | Force-push the current branch (implies `--push`). |
 | `--last-commit` | Analyze only the latest commit instead of the full branch diff. |
 | `--commit SHA` | Analyze a specific commit by SHA. |
+| `--commit-wise` | Analyze each commit separately and publish a consolidated full report. |
 
 **How it works:** Generates a `git diff` against the base branch (or a single commit) → sends it to the configured AI provider with the prompt template → converts the Markdown response to styled HTML → posts it as an idempotent comment on the open PR (or creates a draft PR if none exists).
 
 **Commit-level reports** (`--last-commit` / `--commit`): Each commit gets its own PR comment (identified by a per-commit marker). Re-running the same commit replaces its comment; different commits append separate comments. Full-branch and commit reports coexist on the same PR.
+
+### `sdlc-tools review`
+
+| Option | Description |
+|---|---|
+| `--base-branch TEXT` | Base branch for diff (overrides config). |
+| `--provider TEXT` | AI provider: `copilot`, `openai`, `anthropic`, `gemini`, `ollama`. |
+| `--model TEXT` | AI model name (overrides config default). |
+| `--push` | Push the current branch to origin before generating review feedback. |
+| `--force-push` | Force-push the current branch (implies `--push`). |
+| `--persona TEXT` | Reviewer persona (repeatable). Use `all` for all configured personas. |
+
+**How it works:** Uses the same shared analysis pipeline as report mode, but loads review base instructions plus persona instructions from files. If `--persona` is omitted, the `primary_persona` from `config/review_personas.yaml` is used.
 
 ### `sdlc-tools tag`
 
@@ -224,8 +255,8 @@ Commands:
 Scaffolds project config and CI workflows:
 
 ```
-sdlc-tools init                 # creates .sdlc.yml + .github/workflows/{ai-report,release-tag}.yml
-sdlc-tools init --skip-workflows  # creates .sdlc.yml only
+sdlc-tools init                   # creates .sdlc.yml + config/ + instructions/ + workflows
+sdlc-tools init --skip-workflows  # creates .sdlc.yml + config/ + instructions/
 ```
 
 Existing files are never overwritten — safe to re-run.
