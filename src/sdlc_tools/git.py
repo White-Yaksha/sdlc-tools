@@ -166,3 +166,34 @@ def get_commit_diff(sha: str) -> str:
         )
         sys.exit(1)
     return result.stdout
+
+
+def get_branch_commits(base_branch: str) -> list[tuple[str, str]]:
+    """Return commits between ``origin/<base_branch>`` and ``HEAD``.
+
+    Fetches the base branch first. Returns a list of ``(sha, subject)``
+    tuples in chronological order (oldest first).
+    """
+    fetch_branch(base_branch)
+    result = subprocess.run(
+        [
+            "git", "log", "--reverse", "--format=%H %s",
+            f"origin/{base_branch}..HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        log.error("Failed to list branch commits: %s", result.stderr.strip())
+        sys.exit(1)
+
+    commits: list[tuple[str, str]] = []
+    for line in result.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        sha, _, subject = line.partition(" ")
+        commits.append((sha, subject))
+    return commits
