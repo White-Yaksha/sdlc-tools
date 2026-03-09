@@ -93,8 +93,12 @@ Edit `.sdlc.yml` to match your project:
 ```yaml
 sdlc:
   base_branch: develop
-  # release_prefix: releases
-  # max_diff_length: 20000
+  release_prefix: releases
+  release_tag_name: RC-2026.3-1
+  github_repository: your-org/your-repo
+  # github_event_name: pull_request   # local tag testing only
+  # github_event_path: C:\path\to\event.json
+  max_diff_length: 20000
 ```
 
 To skip workflow generation (config only):
@@ -303,6 +307,9 @@ sdlc:
 | `base_branch` | `develop` | Branch to diff against |
 | `release_prefix` | `releases` | Prefix for release branch detection |
 | `release_tag_name` | — | Tag name to create on merge |
+| `github_repository` | — | Repository in `owner/repo` form (required for local `tag` runs) |
+| `github_event_name` | — | GitHub event name (set automatically in GitHub Actions) |
+| `github_event_path` | — | Path to GitHub event payload JSON (set automatically in GitHub Actions) |
 | `max_diff_length` | `20000` | Max diff characters sent to AI |
 | `comment_marker` | `<!-- AI-SDLC-REPORT -->` | HTML marker for idempotent PR comments |
 | `github_token` | — | GitHub PAT (auto-detected or prompted) |

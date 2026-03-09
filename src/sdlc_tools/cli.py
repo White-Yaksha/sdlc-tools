@@ -249,45 +249,61 @@ def tag(ctx: click.Context, tag_name: str | None, event_path: str | None) -> Non
 # init — templates
 # -----------------------------------------------------------------------
 
-_SDLC_YML_TEMPLATE = """\
-# SDLC Tools — Project Configuration
-# This file contains project-specific settings (committed to git).
-# User-level settings (token, AI keys) live in ~/.sdlc/config.yml
-# (run: sdlc-tools setup).
-#
-# Config precedence (lowest → highest):
-#   code defaults → ~/.sdlc/config.yml → .sdlc.yml → env vars → CLI args
-#
-# See: https://github.com/White-Yaksha/sdlc-tools
+def _build_project_config_template(values: dict) -> str:
+    """Build a commented ``.sdlc.yml`` template with safe project-level defaults."""
+    repo = str(values.get("github_repository", "")).strip()
+    repo_line = f"  github_repository: {repo}" if repo else "  # github_repository: owner/repo"
 
-sdlc:
-  # ── Branch & Release ──────────────────────────────────────
-  # base_branch: develop              # Branch to diff against
-  # release_prefix: releases          # PR branch prefix for auto-tagging
-
-  # ── Report Settings ───────────────────────────────────────
-  # max_diff_length: 20000            # Truncate diff beyond this (chars)
-  # comment_marker: "<!-- AI-SDLC-REPORT -->"  # HTML marker for idempotent PR comments
-  # review_comment_marker: "<!-- AI-SDLC-REVIEW -->"
-
-  # ── AI Provider ───────────────────────────────────────────
-  # ai_provider: copilot              # copilot & ollama: local only; CI: openai|anthropic|gemini
-  # ai_model: ""                      # Model name (provider default if empty)
-  # ai_api_key: ""                    # API key (prefer env var or ~/.sdlc/config.yml)
-  # ai_base_url: ""                   # Custom endpoint / proxy URL
-  # ai_timeout: 120                   # Request timeout in seconds
-
-  # ── Prompt ────────────────────────────────────────────────
-  # prompt_file: ""                   # Path to custom prompt (empty → bundled default)
-  # instruction_root: "instructions"  # Base directory for report/review instruction markdown
-  # risk_rules_file: "config/risk_rules.yaml"
-  # review_personas_file: "config/review_personas.yaml"
-
-  # ── Behaviour ─────────────────────────────────────────────
-  # dry_run: false                    # Preview without side effects
-  # verbose: false                    # Enable debug logging
-  # log_file: ""                      # Write logs to file
-"""
+    return (
+        "# SDLC Tools — Project Configuration\n"
+        "# This file contains project-specific settings (committed to git).\n"
+        "# User-level secrets (github_token, ai_api_key) belong in ~/.sdlc/config.yml\n"
+        "# or environment variables.\n"
+        "# (run: sdlc-tools setup)\n"
+        "#\n"
+        "# Config precedence (lowest → highest):\n"
+        "#   code defaults → ~/.sdlc/config.yml → .sdlc.yml → env vars → CLI args\n"
+        "#\n"
+        "# See: https://github.com/White-Yaksha/sdlc-tools\n"
+        "\n"
+        "sdlc:\n"
+        "  # ── Branch & Release ──────────────────────────────────────\n"
+        "  # base_branch: develop              # Branch to diff against\n"
+        "  # release_prefix: releases          # PR branch prefix for auto-tagging\n"
+        "  # release_tag_name: vYYYY.M-N       # Tag created by `sdlc-tools tag`\n"
+        "\n"
+        "  # ── GitHub Runtime Context ───────────────────────────────\n"
+        + repo_line + "\n"
+        "  # github_event_name: pull_request   # Local tag testing only; "
+        "auto-set in GitHub Actions\n"
+        "  # github_event_path: \"C:\\path\\to\\event.json\"  # Local tag testing only\n"
+        "\n"
+        "  # ── Report Settings ───────────────────────────────────────\n"
+        "  # max_diff_length: 20000            # Truncate diff beyond this (chars)\n"
+        "  # comment_marker: \"<!-- AI-SDLC-REPORT -->\"  "
+        "# HTML marker for idempotent PR comments\n"
+        "  # review_comment_marker: \"<!-- AI-SDLC-REVIEW -->\"\n"
+        "\n"
+        "  # ── AI Provider ───────────────────────────────────────────\n"
+        "  # ai_provider: copilot              # copilot & ollama: "
+        "local only; CI: openai|anthropic|gemini\n"
+        "  # ai_model: \"\"                      # Model name (provider default if empty)\n"
+        "  # ai_base_url: \"\"                   # Custom endpoint / proxy URL\n"
+        "  # ai_timeout: 120                   # Request timeout in seconds\n"
+        "\n"
+        "  # ── Prompt ────────────────────────────────────────────────\n"
+        "  # prompt_file: \"\"                   # Path to custom prompt "
+        "(empty → bundled default)\n"
+        "  # instruction_root: \"instructions\"  # Base directory for "
+        "report/review instruction markdown\n"
+        "  # risk_rules_file: \"config/risk_rules.yaml\"\n"
+        "  # review_personas_file: \"config/review_personas.yaml\"\n"
+        "\n"
+        "  # ── Behaviour ─────────────────────────────────────────────\n"
+        "  # dry_run: false                    # Preview without side effects\n"
+        "  # verbose: false                    # Enable debug logging\n"
+        "  # log_file: \"\"                      # Write logs to file\n"
+    )
 
 _WORKFLOW_TEMPLATES: dict[str, str] = {
     "ai-report.yml": """\
@@ -471,6 +487,8 @@ Prioritize architecture concerns:
 @click.pass_context
 def init(ctx: click.Context, skip_workflows: bool) -> None:
     """Create .sdlc.yml, analysis templates, and optional workflow files."""
+    from sdlc_tools.git import get_repo_url
+
     created: list[str] = []
 
     # --- .sdlc.yml ---
@@ -478,7 +496,8 @@ def init(ctx: click.Context, skip_workflows: bool) -> None:
     if sdlc_yml.exists():
         click.echo("  skip  .sdlc.yml (already exists)")
     else:
-        sdlc_yml.write_text(_SDLC_YML_TEMPLATE, encoding="utf-8")
+        template_values = {"github_repository": get_repo_url()}
+        sdlc_yml.write_text(_build_project_config_template(template_values), encoding="utf-8")
         created.append(str(sdlc_yml))
         click.echo(f"  create  {sdlc_yml}")
 
