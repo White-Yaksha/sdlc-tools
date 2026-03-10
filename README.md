@@ -3,6 +3,7 @@
 > A pip-installable Python CLI toolkit for SDLC automation — AI code impact reports, release tagging, and PR management.
 
 [![CI](https://github.com/White-Yaksha/sdlc-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/White-Yaksha/sdlc-tools/actions)
+[![PyPI](https://img.shields.io/pypi/v/sdlc-tools.svg)](https://pypi.org/project/sdlc-tools/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -23,6 +24,8 @@
 ## Quick Start
 
 ### 1. Install
+
+`sdlc-tools` is now available on PyPI: https://pypi.org/project/sdlc-tools/
 
 ```bash
 pip install sdlc-tools
