@@ -25,12 +25,14 @@
 ### 1. Install
 
 ```bash
-pip install git+https://github.com/White-Yaksha/sdlc-tools.git
+pip install sdlc-tools
 ```
 
-Or pin a version:
+If you prefer installing directly from GitHub:
 
 ```bash
+pip install git+https://github.com/White-Yaksha/sdlc-tools.git
+# or pin a git tag:
 pip install git+https://github.com/White-Yaksha/sdlc-tools.git@v0.1.0
 ```
 
@@ -513,6 +515,26 @@ pytest --tb=short -q
 # Coverage (80% threshold)
 coverage run -m pytest && coverage report --fail-under=80
 ```
+
+### Publish to PyPI
+
+This repository includes `.github/workflows/publish-pypi.yml`.
+
+1. Add repository secrets:
+   - `PYPI_API_TOKEN` for `https://pypi.org/`
+   - `TEST_PYPI_API_TOKEN` for `https://test.pypi.org/`
+2. Build locally (recommended pre-check):
+
+```bash
+python -m pip install --upgrade pip build twine
+python -m build
+python -m twine check dist/*
+```
+
+3. Publish options:
+   - **TestPyPI (manual):** GitHub Actions → `Publish Package` → `Run workflow` and choose
+     `testpypi`.
+   - **PyPI (release):** push a version tag like `v0.1.1` (or run workflow manually with `pypi`).
 
 ### Dependencies
 
