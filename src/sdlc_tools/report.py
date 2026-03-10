@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 
 from sdlc_tools.ai import get_provider
@@ -19,6 +20,51 @@ from sdlc_tools.html import convert_markdown_to_html
 from sdlc_tools.log import get_logger
 
 log = get_logger("report")
+
+_WRAPPER_PATTERNS: tuple[str, ...] = (
+    r"(?im)^here is the structured markdown report:?\s*$",
+    r"(?im)^here is the report in markdown format:?\s*$",
+    r"(?im)^here is the markdown report:?\s*$",
+)
+
+
+def _normalize_ai_markdown(markdown: str) -> str:
+    """Normalize provider output to a single clean Markdown report."""
+    text = _unwrap_markdown_fence(markdown.strip())
+    if not text:
+        return ""
+
+    for pattern in _WRAPPER_PATTERNS:
+        matches = list(re.finditer(pattern, text))
+        if matches:
+            text = text[matches[-1].end():].lstrip()
+
+    text = _drop_repeated_report_prefix(text)
+    return text.strip()
+
+
+def _unwrap_markdown_fence(text: str) -> str:
+    match = re.match(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def _drop_repeated_report_prefix(text: str) -> str:
+    """If report sections appear twice, keep only the last complete block."""
+    pattern = re.compile(r"(?im)^\s*(?:#+\s*)?high-level summary\s*$")
+    matches = list(pattern.finditer(text))
+    if len(matches) < 2:
+        return text
+
+    cut = matches[-1].start()
+    prefix = text[:cut].rstrip("\n")
+    if prefix:
+        line_start = prefix.rfind("\n") + 1
+        title_line = prefix[line_start:].strip()
+        if title_line and "report" in title_line.lower():
+            cut = line_start
+    return text[cut:].lstrip()
 
 
 class ReportGenerator:
@@ -85,7 +131,7 @@ class ReportGenerator:
                 provider=provider,
                 diff=diff,
             )
-            markdown_report = pipeline_output.markdown
+            markdown_report = _normalize_ai_markdown(pipeline_output.markdown)
         except (RuntimeError, ValueError) as exc:
             log.error("AI analysis failed: %s", exc)
             sys.exit(1)
@@ -167,9 +213,14 @@ class ReportGenerator:
             log.warning("AI provider returned empty review response. Skipping review.")
             return
 
+        normalized_review = _normalize_ai_markdown(pipeline_output.markdown)
+        if not normalized_review:
+            log.warning("AI provider returned empty review response after normalization.")
+            return
+
         persona_label = ", ".join(pipeline_output.persona_names) or "none"
         html_report = convert_markdown_to_html(
-            pipeline_output.markdown,
+            normalized_review,
             title="🔎 AI Code Review Report",
             marker=self.config.review_comment_marker,
             subtitle=f"Provider: {provider.display_name} | Personas: {persona_label}",
@@ -250,7 +301,7 @@ class ReportGenerator:
                     provider=provider,
                     diff=diff,
                 )
-                md = pipeline_output.markdown
+                md = _normalize_ai_markdown(pipeline_output.markdown)
             except (RuntimeError, ValueError) as exc:
                 log.error("AI analysis failed for commit %s: %s", short, exc)
                 continue
