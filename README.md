@@ -106,6 +106,7 @@ Selection shortcuts:
 
 If you run `init` in an interactive terminal, you'll choose mode with arrow keys + Enter:
 `select-all`, `select-none`, or `custom`.
+The current row is shown as a highlighted menu item.
 If you choose `custom`, each optional bundle is prompted as `y/N`.
 In non-interactive mode, it defaults to `select-all` unless `--optional` is provided.
 
