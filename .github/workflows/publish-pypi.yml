@@ -41,7 +41,7 @@ jobs:
 
   publish-pypi:
     needs: build
-    if: github.event_name == 'push' || github.event.inputs.repository == 'pypi'
+    if: github.event.pull_request.merged == true || github.event.inputs.repository == 'pypi'
     runs-on: ubuntu-latest
     permissions:
       contents: read
