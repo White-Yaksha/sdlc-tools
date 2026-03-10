@@ -39,7 +39,7 @@ jobs:
 
   publish-pypi:
     needs: build
-    if: github.event_name == 'push' || github.event.inputs.repository == 'pypi'
+    if: github.event_name == 'release' || github.event.inputs.repository == 'pypi'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,7 +57,7 @@ jobs:
 
   publish-testpypi:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.repository == 'testpypi'
+    if: github.event.inputs.repository == 'testpypi'
     runs-on: ubuntu-latest
     permissions:
       contents: read
