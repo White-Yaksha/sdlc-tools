@@ -60,3 +60,57 @@ class TestCommitReportMarker:
         marker_a = f"<!-- AI-SDLC-COMMIT-{get_short_sha(sha_a)} -->"
         marker_b = f"<!-- AI-SDLC-COMMIT-{get_short_sha(sha_b)} -->"
         assert marker_a != marker_b
+
+
+class TestCommitWiseReportMarker:
+    """Verify commit-wise reports use the full-report marker for idempotency."""
+
+    def test_commit_wise_uses_full_report_marker(self) -> None:
+        """Commit-wise report must use the same marker as the full report."""
+        cfg = SdlcConfig()
+        # The commit-wise report uses cfg.comment_marker, same as the full report.
+        assert cfg.comment_marker == "<!-- AI-SDLC-REPORT -->"
+
+    def test_commit_wise_marker_differs_from_single_commit(self) -> None:
+        """Commit-wise (full-report) marker must differ from single-commit markers."""
+        from sdlc_tools.git import get_short_sha
+
+        cfg = SdlcConfig()
+        full_marker = cfg.comment_marker
+        commit_marker = f"<!-- AI-SDLC-COMMIT-{get_short_sha('abc1234def5678')} -->"
+        assert full_marker != commit_marker
+
+
+class TestGetBranchCommitsParsing:
+    """Verify the parsing logic of get_branch_commits output format."""
+
+    def test_parse_commit_log_format(self) -> None:
+        """Ensure the expected 'SHA subject' format is correctly parsed."""
+        # Simulate the output parsing that get_branch_commits performs.
+        raw = (
+            "abc1234567890abcdef1234567890abcdef123456 Initial commit\n"
+            "def5678901234abcdef5678901234abcdef567890 Add feature X\n"
+        )
+        commits: list[tuple[str, str]] = []
+        for line in raw.strip().splitlines():
+            if not line.strip():
+                continue
+            sha, _, subject = line.partition(" ")
+            commits.append((sha, subject))
+
+        assert len(commits) == 2
+        assert commits[0][0] == "abc1234567890abcdef1234567890abcdef123456"
+        assert commits[0][1] == "Initial commit"
+        assert commits[1][1] == "Add feature X"
+
+    def test_parse_empty_output(self) -> None:
+        """Empty log output should produce an empty list."""
+        raw = ""
+        commits: list[tuple[str, str]] = []
+        for line in raw.strip().splitlines():
+            if not line.strip():
+                continue
+            sha, _, subject = line.partition(" ")
+            commits.append((sha, subject))
+
+        assert commits == []

@@ -83,6 +83,8 @@ def _log_config(config: SdlcConfig, command: str) -> None:
               help="Analyze only the latest commit instead of the full branch diff.")
 @click.option("--commit", "commit_sha", default=None,
               help="Analyze a specific commit by SHA.")
+@click.option("--commit-wise", "commit_wise", is_flag=True, default=False,
+              help="Analyze each commit individually and post a consolidated full report.")
 @click.pass_context
 def report(
     ctx: click.Context,
@@ -93,14 +95,16 @@ def report(
     force_push: bool,
     last_commit: bool,
     commit_sha: str | None,
+    commit_wise: bool,
 ) -> None:
     """Generate an AI code impact report and post it to the PR."""
     from sdlc_tools.client import GitHubClient
     from sdlc_tools.report import ReportGenerator
 
-    if last_commit and commit_sha:
+    exclusive_count = sum([last_commit, bool(commit_sha), commit_wise])
+    if exclusive_count > 1:
         click.echo(
-            "[ERROR] --last-commit and --commit are mutually exclusive.",
+            "[ERROR] --last-commit, --commit, and --commit-wise are mutually exclusive.",
             err=True,
         )
         sys.exit(1)
@@ -133,7 +137,69 @@ def report(
         sys.exit(1)
 
     generator = ReportGenerator(client, config)
-    generator.run(commit_sha=resolved_sha)
+    if commit_wise:
+        generator.run_commit_wise()
+    else:
+        generator.run(commit_sha=resolved_sha)
+
+
+# -----------------------------------------------------------------------
+# review
+# -----------------------------------------------------------------------
+
+
+@main.command()
+@click.option("--base-branch", default=None, help="Base branch for diff (overrides config).")
+@click.option("--provider", "ai_provider", default=None,
+              help="AI provider: copilot, openai, anthropic, gemini, ollama.")
+@click.option("--model", "ai_model", default=None, help="AI model name (overrides config).")
+@click.option("--push", "push_first", is_flag=True, default=False,
+              help="Push the current branch to origin before generating the review.")
+@click.option("--force-push", "force_push", is_flag=True, default=False,
+              help="Force-push the current branch (implies --push).")
+@click.option(
+    "--persona",
+    "personas",
+    multiple=True,
+    help="Reviewer persona. Repeat for multiple; use 'all' for all personas. "
+         "If omitted, primary persona is used.",
+)
+@click.pass_context
+def review(
+    ctx: click.Context,
+    base_branch: str | None,
+    ai_provider: str | None,
+    ai_model: str | None,
+    push_first: bool,
+    force_push: bool,
+    personas: tuple[str, ...],
+) -> None:
+    """Generate an AI review report (persona-based) and post it to the PR."""
+    from sdlc_tools.client import GitHubClient
+    from sdlc_tools.report import ReportGenerator
+
+    if push_first or force_push:
+        from sdlc_tools.git import push_current_branch
+
+        if not push_current_branch(force=force_push):
+            click.echo("[ERROR] Git push failed. Aborting review.", err=True)
+            sys.exit(1)
+
+    config = _build_config(ctx, {
+        "base_branch": base_branch,
+        "ai_provider": ai_provider,
+        "ai_model": ai_model,
+    })
+    _log_config(config, "review")
+
+    try:
+        client = GitHubClient(token=config.github_token, dry_run=config.dry_run)
+    except ValueError as exc:
+        click.echo(f"[ERROR] {exc}", err=True)
+        sys.exit(1)
+
+    generator = ReportGenerator(client, config)
+    generator.review(personas=list(personas))
 
 
 # -----------------------------------------------------------------------
@@ -183,41 +249,61 @@ def tag(ctx: click.Context, tag_name: str | None, event_path: str | None) -> Non
 # init — templates
 # -----------------------------------------------------------------------
 
-_SDLC_YML_TEMPLATE = """\
-# SDLC Tools — Project Configuration
-# This file contains project-specific settings (committed to git).
-# User-level settings (token, AI keys) live in ~/.sdlc/config.yml
-# (run: sdlc-tools setup).
-#
-# Config precedence (lowest → highest):
-#   code defaults → ~/.sdlc/config.yml → .sdlc.yml → env vars → CLI args
-#
-# See: https://github.com/White-Yaksha/sdlc-tools
+def _build_project_config_template(values: dict) -> str:
+    """Build a commented ``.sdlc.yml`` template with safe project-level defaults."""
+    repo = str(values.get("github_repository", "")).strip()
+    repo_line = f"  github_repository: {repo}" if repo else "  # github_repository: owner/repo"
 
-sdlc:
-  # ── Branch & Release ──────────────────────────────────────
-  # base_branch: develop              # Branch to diff against
-  # release_prefix: releases          # PR branch prefix for auto-tagging
-
-  # ── Report Settings ───────────────────────────────────────
-  # max_diff_length: 20000            # Truncate diff beyond this (chars)
-  # comment_marker: "<!-- AI-SDLC-REPORT -->"  # HTML marker for idempotent PR comments
-
-  # ── AI Provider ───────────────────────────────────────────
-  # ai_provider: copilot              # copilot & ollama: local only; CI: openai|anthropic|gemini
-  # ai_model: ""                      # Model name (provider default if empty)
-  # ai_api_key: ""                    # API key (prefer env var or ~/.sdlc/config.yml)
-  # ai_base_url: ""                   # Custom endpoint / proxy URL
-  # ai_timeout: 120                   # Request timeout in seconds
-
-  # ── Prompt ────────────────────────────────────────────────
-  # prompt_file: ""                   # Path to custom prompt (empty → bundled default)
-
-  # ── Behaviour ─────────────────────────────────────────────
-  # dry_run: false                    # Preview without side effects
-  # verbose: false                    # Enable debug logging
-  # log_file: ""                      # Write logs to file
-"""
+    return (
+        "# SDLC Tools — Project Configuration\n"
+        "# This file contains project-specific settings (committed to git).\n"
+        "# User-level secrets (github_token, ai_api_key) belong in ~/.sdlc/config.yml\n"
+        "# or environment variables.\n"
+        "# (run: sdlc-tools setup)\n"
+        "#\n"
+        "# Config precedence (lowest → highest):\n"
+        "#   code defaults → ~/.sdlc/config.yml → .sdlc.yml → env vars → CLI args\n"
+        "#\n"
+        "# See: https://github.com/White-Yaksha/sdlc-tools\n"
+        "\n"
+        "sdlc:\n"
+        "  # ── Branch & Release ──────────────────────────────────────\n"
+        "  # base_branch: develop              # Branch to diff against\n"
+        "  # release_prefix: releases          # PR branch prefix for auto-tagging\n"
+        "  # release_tag_name: vYYYY.M-N       # Tag created by `sdlc-tools tag`\n"
+        "\n"
+        "  # ── GitHub Runtime Context ───────────────────────────────\n"
+        + repo_line + "\n"
+        "  # github_event_name: pull_request   # Local tag testing only; "
+        "auto-set in GitHub Actions\n"
+        "  # github_event_path: \"C:\\path\\to\\event.json\"  # Local tag testing only\n"
+        "\n"
+        "  # ── Report Settings ───────────────────────────────────────\n"
+        "  # max_diff_length: 20000            # Truncate diff beyond this (chars)\n"
+        "  # comment_marker: \"<!-- AI-SDLC-REPORT -->\"  "
+        "# HTML marker for idempotent PR comments\n"
+        "  # review_comment_marker: \"<!-- AI-SDLC-REVIEW -->\"\n"
+        "\n"
+        "  # ── AI Provider ───────────────────────────────────────────\n"
+        "  # ai_provider: copilot              # copilot & ollama: "
+        "local only; CI: openai|anthropic|gemini\n"
+        "  # ai_model: \"\"                      # Model name (provider default if empty)\n"
+        "  # ai_base_url: \"\"                   # Custom endpoint / proxy URL\n"
+        "  # ai_timeout: 120                   # Request timeout in seconds\n"
+        "\n"
+        "  # ── Prompt ────────────────────────────────────────────────\n"
+        "  # prompt_file: \"\"                   # Path to custom prompt "
+        "(empty → bundled default)\n"
+        "  # instruction_root: \"instructions\"  # Base directory for "
+        "report/review instruction markdown\n"
+        "  # risk_rules_file: \"config/risk_rules.yaml\"\n"
+        "  # review_personas_file: \"config/review_personas.yaml\"\n"
+        "\n"
+        "  # ── Behaviour ─────────────────────────────────────────────\n"
+        "  # dry_run: false                    # Preview without side effects\n"
+        "  # verbose: false                    # Enable debug logging\n"
+        "  # log_file: \"\"                      # Write logs to file\n"
+    )
 
 _WORKFLOW_TEMPLATES: dict[str, str] = {
     "ai-report.yml": """\
@@ -312,6 +398,82 @@ jobs:
 """,
 }
 
+_INIT_FILE_TEMPLATES: dict[str, str] = {
+    "config/risk_rules.yaml": """\
+high_risk_paths:
+  - database/
+  - migrations/
+  - auth/
+
+file_type_rules:
+  ".sql": "database schema change"
+  ".yaml": "config modification"
+
+dependency_files:
+  - requirements.txt
+  - package.json
+  - pyproject.toml
+
+patterns:
+  - name: schema_change
+    regex: ALTER TABLE|CREATE TABLE|DROP TABLE
+  - name: retry_logic
+    regex: retry|backoff|timeout
+""",
+    "config/review_personas.yaml": """\
+primary_persona: security
+personas:
+  security: instructions/review/personas/security.md
+  performance: instructions/review/personas/performance.md
+  architecture: instructions/review/personas/architecture.md
+""",
+    "instructions/report/report_base.md": """\
+# Report Mode
+
+You are generating a pull request change impact report for the PR author.
+Focus on:
+- high-level summary of what changed
+- potential risks and affected components
+- rollout/compatibility considerations
+- test and validation impact
+
+Be concise, structured, and actionable.
+""",
+    "instructions/review/review_base.md": """\
+# Review Mode
+
+You are generating reviewer feedback for a pull request.
+Focus on:
+- correctness and logic risks
+- security/stability/performance concerns
+- missing tests and failure scenarios
+- concrete recommendations
+
+Return clear, prioritized, reviewer-ready feedback.
+""",
+    "instructions/review/personas/security.md": """\
+Prioritize security concerns:
+- authN/authZ boundaries
+- secrets handling
+- injection vectors and input validation
+- privilege escalation and data exposure
+""",
+    "instructions/review/personas/performance.md": """\
+Prioritize performance concerns:
+- unnecessary repeated work
+- expensive I/O or queries
+- memory and CPU hotspots
+- scalability implications under load
+""",
+    "instructions/review/personas/architecture.md": """\
+Prioritize architecture concerns:
+- layering and boundaries
+- coupling and cohesion
+- extensibility and maintainability
+- consistency with existing patterns
+""",
+}
+
 # -----------------------------------------------------------------------
 # init
 # -----------------------------------------------------------------------
@@ -324,7 +486,9 @@ jobs:
 )
 @click.pass_context
 def init(ctx: click.Context, skip_workflows: bool) -> None:
-    """Create .sdlc.yml and GitHub Actions workflows in the current directory."""
+    """Create .sdlc.yml, analysis templates, and optional workflow files."""
+    from sdlc_tools.git import get_repo_url
+
     created: list[str] = []
 
     # --- .sdlc.yml ---
@@ -332,9 +496,21 @@ def init(ctx: click.Context, skip_workflows: bool) -> None:
     if sdlc_yml.exists():
         click.echo("  skip  .sdlc.yml (already exists)")
     else:
-        sdlc_yml.write_text(_SDLC_YML_TEMPLATE, encoding="utf-8")
+        template_values = {"github_repository": get_repo_url()}
+        sdlc_yml.write_text(_build_project_config_template(template_values), encoding="utf-8")
         created.append(str(sdlc_yml))
         click.echo(f"  create  {sdlc_yml}")
+
+    # --- analysis config + instruction files ---
+    for rel_path, content in _INIT_FILE_TEMPLATES.items():
+        target = Path.cwd() / Path(rel_path)
+        if target.exists():
+            click.echo(f"  skip  {rel_path} (already exists)")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        created.append(str(target))
+        click.echo(f"  create  {rel_path}")
 
     # --- GitHub Actions workflows ---
     if not skip_workflows:
@@ -401,6 +577,12 @@ def _build_user_config_template(values: dict) -> str:
         "  # ── Report Settings ───────────────────────────────────\n"
         "  # max_diff_length: 20000\n"
         '  # comment_marker: "<!-- AI-SDLC-REPORT -->"\n'
+        '  # review_comment_marker: "<!-- AI-SDLC-REVIEW -->"\n'
+        "\n"
+        "  # ── Instruction & Analyzer Files ─────────────────────\n"
+        '  # instruction_root: "instructions"\n'
+        '  # risk_rules_file: "config/risk_rules.yaml"\n'
+        '  # review_personas_file: "config/review_personas.yaml"\n'
         "\n"
         "  # ── Behaviour ─────────────────────────────────────────\n"
         "  # dry_run: false\n"
