@@ -1,10 +1,8 @@
 name: Publish Package
 
 on:
-  workflow_run:
-    workflows: ["Release Tag"]
-    types:
-      - completed
+  push:
+    branches: [master]
   workflow_dispatch:
     inputs:
       repository:
@@ -41,7 +39,7 @@ jobs:
 
   publish-pypi:
     needs: build
-    if: github.event_name == 'workflow_run' || github.event.inputs.repository == 'pypi'
+    if: github.event_name == 'push' || github.event.inputs.repository == 'pypi'
     runs-on: ubuntu-latest
     permissions:
       contents: read
