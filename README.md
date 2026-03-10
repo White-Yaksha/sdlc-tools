@@ -104,7 +104,9 @@ Selection shortcuts:
 - `select-all` includes all optional bundles
 - `select-none` skips all optional bundles
 
-If you run `init` in an interactive terminal, you'll be prompted to choose optional bundles.
+If you run `init` in an interactive terminal, you'll choose mode with arrow keys + Enter:
+`select-all`, `select-none`, or `custom`.
+If you choose `custom`, each optional bundle is prompted as `y/N`.
 In non-interactive mode, it defaults to `select-all` unless `--optional` is provided.
 
 Edit `.sdlc.yml` to match your project:
@@ -286,6 +288,8 @@ sdlc-tools init --optional select-none
 sdlc-tools init --optional review-personas --optional ai-report-workflow
 sdlc-tools init --optional select-all --skip-workflows
 ```
+
+Interactive mode uses arrow keys + Enter for mode selection, then `y/N` prompts for custom bundles.
 
 | Option | Description |
 |---|---|

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from sdlc_tools.cli import main
+from sdlc_tools.cli import (
+    _prompt_optional_bundle_selection,
+    _prompt_optional_mode_with_arrows,
+    main,
+)
 
 
 class TestInit:
@@ -185,3 +190,32 @@ class TestInit:
                 assert "name" in data
                 assert True in data  # YAML parses `on:` as boolean True
                 assert "jobs" in data
+
+
+class TestInitInteractiveSelection:
+    """Verify interactive init selector behavior."""
+
+    def test_mode_selector_down_then_enter_selects_none(self) -> None:
+        keys = iter(["\x1b[B", "\r"])
+        mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
+        assert mode == "select-none"
+
+    def test_mode_selector_windows_arrows_selects_custom(self) -> None:
+        keys = iter(["\xe0", "P", "\xe0", "P", "\r"])
+        mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
+        assert mode == "custom"
+
+    def test_prompt_optional_bundle_selection_custom_yn(self) -> None:
+        with (
+            patch("sdlc_tools.cli._prompt_optional_mode_with_arrows", return_value="custom"),
+            patch(
+                "sdlc_tools.cli.click.confirm",
+                side_effect=[True, False, True, False, True],
+            ),
+        ):
+            selected = _prompt_optional_bundle_selection()
+        assert selected == [
+            "risk-rules",
+            "ai-report-workflow",
+            "local-tag-event-json",
+        ]
