@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sdlc_tools.config import SdlcConfig
+from sdlc_tools.report import _normalize_ai_markdown
 
 
 class TestDiffTruncation:
@@ -114,3 +115,35 @@ class TestGetBranchCommitsParsing:
             commits.append((sha, subject))
 
         assert commits == []
+
+
+class TestNormalizeAiMarkdown:
+    """Verify cleanup of chatty/duplicated AI provider outputs."""
+
+    def test_strips_markdown_fence(self) -> None:
+        raw = "```markdown\n## High-Level Summary\nClean output\n```"
+        assert _normalize_ai_markdown(raw) == "## High-Level Summary\nClean output"
+
+    def test_keeps_last_report_after_wrapper_phrase(self) -> None:
+        raw = (
+            "Here is the structured Markdown report:\n\n"
+            "High-Level Summary\nFirst version\n\n"
+            "Here is the report in Markdown format:\n"
+            "Code Impact Analysis Report\n"
+            "High-Level Summary\nSecond version"
+        )
+        cleaned = _normalize_ai_markdown(raw)
+        assert cleaned.startswith("Code Impact Analysis Report")
+        assert "Second version" in cleaned
+        assert "First version" not in cleaned
+
+    def test_drops_repeated_section_prefix(self) -> None:
+        raw = (
+            "Code Impact Analysis Report\n"
+            "High-Level Summary\nFirst pass\n\n"
+            "High-Level Summary\nSecond pass\n"
+            "Risk Assessment\nLow"
+        )
+        cleaned = _normalize_ai_markdown(raw)
+        assert "Second pass" in cleaned
+        assert "First pass" not in cleaned
