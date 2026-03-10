@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from sdlc_tools.cli import (
@@ -195,6 +196,19 @@ class TestInit:
 class TestInitInteractiveSelection:
     """Verify interactive init selector behavior."""
 
+    def test_mode_selector_renders_highlighted_list(
+        self,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        keys = iter(["\r"])
+        with patch("sdlc_tools.cli._supports_ansi_redraw", return_value=False):
+            mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
+        assert mode == "select-all"
+        output = capsys.readouterr().out
+        assert "> Select all optional bundles" in output
+        assert "Select none (mandatory files only)" in output
+        assert "Custom per-bundle selection (y/N prompts)" in output
+
     def test_mode_selector_down_then_enter_selects_none(self) -> None:
         keys = iter(["\x1b[B", "\r"])
         mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
@@ -204,6 +218,11 @@ class TestInitInteractiveSelection:
         keys = iter(["\xe0", "P", "\xe0", "P", "\r"])
         mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
         assert mode == "custom"
+
+    def test_mode_selector_windows_combined_arrow_code_selects_none(self) -> None:
+        keys = iter(["\xe0P", "\r"])
+        mode = _prompt_optional_mode_with_arrows(key_reader=lambda: next(keys))
+        assert mode == "select-none"
 
     def test_prompt_optional_bundle_selection_custom_yn(self) -> None:
         with (
