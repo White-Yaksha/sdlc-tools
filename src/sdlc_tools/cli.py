@@ -571,7 +571,7 @@ def _parse_optional_bundle_selection(values: tuple[str, ...]) -> list[str]:
 
 def _read_navigation_key(*, key_reader: Callable[[], str]) -> str:
     """Read one navigation key event from terminal input."""
-    key = key_reader()
+    key = str(key_reader())
 
     if key in ("\r", "\n"):
         return "enter"
@@ -579,10 +579,17 @@ def _read_navigation_key(*, key_reader: Callable[[], str]) -> str:
         return "up"
     if key in ("\x1b[B", "\x1bOB"):
         return "down"
+    # Some Windows terminals return combined two-char codes (e.g. "\xe0P").
+    if len(key) == 2 and key[0] in ("\x00", "\xe0"):
+        if key[1] == "H":
+            return "up"
+        if key[1] == "P":
+            return "down"
+        return "other"
 
     # Windows arrow keys often arrive as a two-character sequence.
     if key in ("\x00", "\xe0"):
-        follow = key_reader()
+        follow = str(key_reader())
         if follow == "H":
             return "up"
         if follow == "P":
@@ -591,20 +598,51 @@ def _read_navigation_key(*, key_reader: Callable[[], str]) -> str:
 
     # POSIX terminals may emit ESC + [ + A/B.
     if key == "\x1b":
-        second = key_reader()
+        second = str(key_reader())
         if second in ("[", "O"):
-            third = key_reader()
+            third = str(key_reader())
             if third == "A":
                 return "up"
             if third == "B":
                 return "down"
         return "other"
 
-    if key.lower() == "k":
+    if key.lower() in {"k", "w"}:
         return "up"
-    if key.lower() == "j":
+    if key.lower() in {"j", "s"}:
         return "down"
     return "other"
+
+
+def _supports_ansi_redraw() -> bool:
+    """Return True when stdout is likely to support ANSI redraw sequences."""
+    stream = click.get_text_stream("stdout")
+    return bool(getattr(stream, "isatty", lambda: False)())
+
+
+def _render_optional_mode_menu(
+    *,
+    modes: list[tuple[str, str]],
+    index: int,
+    previous_lines: int,
+    use_ansi_redraw: bool,
+) -> int:
+    """Render the optional-mode menu with the current item highlighted."""
+    if use_ansi_redraw and previous_lines > 0:
+        click.echo(f"\x1b[{previous_lines}A", nl=False)
+
+    rendered_lines = 0
+    for i, (_, label) in enumerate(modes):
+        prefix = ">" if i == index else " "
+        line = f"{prefix} {label}"
+        if i == index:
+            line = click.style(line, reverse=True)
+        if use_ansi_redraw:
+            click.echo(f"\x1b[2K{line}")
+        else:
+            click.echo(line)
+        rendered_lines += 1
+    return rendered_lines
 
 
 def _prompt_optional_mode_with_arrows(
@@ -620,18 +658,35 @@ def _prompt_optional_mode_with_arrows(
     ]
 
     index = 0
+    use_ansi_redraw = _supports_ansi_redraw()
+    rendered_lines = 0
     click.echo("\nChoose optional selection mode (↑/↓ + Enter):")
-    click.echo(f"Current: {modes[index][1]}")
+    rendered_lines = _render_optional_mode_menu(
+        modes=modes,
+        index=index,
+        previous_lines=rendered_lines,
+        use_ansi_redraw=use_ansi_redraw,
+    )
 
     while True:
         nav = _read_navigation_key(key_reader=reader)
         if nav == "up":
             index = (index - 1) % len(modes)
-            click.echo(f"Current: {modes[index][1]}")
+            rendered_lines = _render_optional_mode_menu(
+                modes=modes,
+                index=index,
+                previous_lines=rendered_lines,
+                use_ansi_redraw=use_ansi_redraw,
+            )
             continue
         if nav == "down":
             index = (index + 1) % len(modes)
-            click.echo(f"Current: {modes[index][1]}")
+            rendered_lines = _render_optional_mode_menu(
+                modes=modes,
+                index=index,
+                previous_lines=rendered_lines,
+                use_ansi_redraw=use_ansi_redraw,
+            )
             continue
         if nav == "enter":
             click.echo(f"Selected: {modes[index][1]}")
