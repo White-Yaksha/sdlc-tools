@@ -472,7 +472,154 @@ Prioritize architecture concerns:
 - extensibility and maintainability
 - consistency with existing patterns
 """,
+    "event.json": """\
+{
+  "action": "closed",
+  "pull_request": {
+    "merged": true,
+    "base": {
+      "ref": "releases/2026.3"
+    }
+  }
 }
+""",
+}
+
+_INIT_MANDATORY_PATHS: tuple[str, ...] = (
+    "instructions/report/report_base.md",
+    "instructions/review/review_base.md",
+)
+
+_INIT_OPTIONAL_BUNDLES: dict[str, tuple[str, ...]] = {
+    "risk-rules": ("config/risk_rules.yaml",),
+    "review-personas": (
+        "config/review_personas.yaml",
+        "instructions/review/personas/security.md",
+        "instructions/review/personas/performance.md",
+        "instructions/review/personas/architecture.md",
+    ),
+    "ai-report-workflow": (".github/workflows/ai-report.yml",),
+    "release-tag-workflow": (".github/workflows/release-tag.yml",),
+    "local-tag-event-json": ("event.json",),
+}
+
+_INIT_WORKFLOW_BUNDLES: set[str] = {"ai-report-workflow", "release-tag-workflow"}
+_INIT_OPTIONAL_SELECTION_CHOICES: tuple[str, ...] = (
+    *tuple(_INIT_OPTIONAL_BUNDLES),
+    "select-all",
+    "all",
+    "select-none",
+    "none",
+)
+_INIT_OPTIONAL_BUNDLE_DESCRIPTIONS: dict[str, str] = {
+    "risk-rules": "config/risk_rules.yaml",
+    "review-personas": "config/review_personas.yaml + persona templates",
+    "ai-report-workflow": ".github/workflows/ai-report.yml",
+    "release-tag-workflow": ".github/workflows/release-tag.yml",
+    "local-tag-event-json": "event.json for local tag testing",
+}
+_INIT_TEMPLATE_CONTENTS: dict[str, str] = {
+    **_INIT_FILE_TEMPLATES,
+    ".github/workflows/ai-report.yml": _WORKFLOW_TEMPLATES["ai-report.yml"],
+    ".github/workflows/release-tag.yml": _WORKFLOW_TEMPLATES["release-tag.yml"],
+}
+
+
+def _is_interactive_terminal() -> bool:
+    """Return True when stdin/stdout are connected to an interactive TTY."""
+    stdin = click.get_text_stream("stdin")
+    stdout = click.get_text_stream("stdout")
+    stdin_tty = bool(getattr(stdin, "isatty", lambda: False)())
+    stdout_tty = bool(getattr(stdout, "isatty", lambda: False)())
+    return stdin_tty and stdout_tty
+
+
+def _parse_optional_bundle_selection(values: tuple[str, ...]) -> list[str]:
+    """Parse and validate optional bundle selections."""
+    tokens = [v.strip().lower() for v in values if v.strip()]
+    if not tokens:
+        return []
+
+    has_select_all = any(v in {"select-all", "all"} for v in tokens)
+    has_select_none = any(v in {"select-none", "none"} for v in tokens)
+    if has_select_all and has_select_none:
+        raise click.BadParameter(
+            "Cannot combine select-all/all with select-none/none for --optional.",
+            param_hint="--optional",
+        )
+    if has_select_all:
+        return list(_INIT_OPTIONAL_BUNDLES)
+    if has_select_none:
+        return []
+
+    supported = set(_INIT_OPTIONAL_BUNDLES)
+    unknown = [v for v in tokens if v not in supported]
+    if unknown:
+        choices = ", ".join(_INIT_OPTIONAL_SELECTION_CHOICES)
+        raise click.BadParameter(
+            f"Unknown optional bundle(s): {', '.join(unknown)}. Use one of: {choices}",
+            param_hint="--optional",
+        )
+
+    selected: list[str] = []
+    for token in tokens:
+        if token not in selected:
+            selected.append(token)
+    return selected
+
+
+def _prompt_optional_bundle_selection() -> list[str]:
+    """Prompt for optional init bundles in interactive terminals."""
+    click.echo("\nOptional init bundles (comma-separated):")
+    for key, description in _INIT_OPTIONAL_BUNDLE_DESCRIPTIONS.items():
+        click.echo(f"  - {key}: {description}")
+    click.echo("  - select-all: include all optional bundles")
+    click.echo("  - select-none: skip all optional bundles")
+
+    raw = click.prompt(
+        "Choose optional bundles",
+        default="select-all",
+        show_default=True,
+    )
+    selections = tuple(part.strip() for part in raw.split(",") if part.strip())
+    return _parse_optional_bundle_selection(selections)
+
+
+def _resolve_optional_bundles(
+    *,
+    optional_bundles: tuple[str, ...],
+    skip_workflows: bool,
+) -> list[str]:
+    """Resolve optional init bundle selection from CLI or interactive input."""
+    if optional_bundles:
+        selected = _parse_optional_bundle_selection(optional_bundles)
+    elif _is_interactive_terminal():
+        selected = _prompt_optional_bundle_selection()
+    else:
+        selected = list(_INIT_OPTIONAL_BUNDLES)
+
+    if skip_workflows:
+        filtered = [bundle for bundle in selected if bundle not in _INIT_WORKFLOW_BUNDLES]
+        if len(filtered) != len(selected):
+            click.echo("[INFO] --skip-workflows is set; workflow bundles were excluded.")
+        selected = filtered
+
+    return selected
+
+
+def _scaffold_template_file(rel_path: str, created: list[str]) -> None:
+    """Create a scaffold file when missing; skip when it already exists."""
+    target = Path.cwd() / Path(rel_path)
+    if target.exists():
+        click.echo(f"  skip  {rel_path} (already exists)")
+        return
+
+    content = _INIT_TEMPLATE_CONTENTS[rel_path]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    created.append(str(target))
+    click.echo(f"  create  {rel_path}")
+
 
 # -----------------------------------------------------------------------
 # init
@@ -481,11 +628,25 @@ Prioritize architecture concerns:
 
 @main.command()
 @click.option(
+    "--optional",
+    "optional_bundles",
+    multiple=True,
+    type=click.Choice(_INIT_OPTIONAL_SELECTION_CHOICES, case_sensitive=False),
+    help=(
+        "Optional scaffold bundle to include (repeatable). "
+        "Use select-all/all or select-none/none."
+    ),
+)
+@click.option(
     "--skip-workflows", is_flag=True, default=False,
     help="Skip generating GitHub Actions workflow files.",
 )
 @click.pass_context
-def init(ctx: click.Context, skip_workflows: bool) -> None:
+def init(
+    ctx: click.Context,
+    optional_bundles: tuple[str, ...],
+    skip_workflows: bool,
+) -> None:
     """Create .sdlc.yml, analysis templates, and optional workflow files."""
     from sdlc_tools.git import get_repo_url
 
@@ -501,30 +662,25 @@ def init(ctx: click.Context, skip_workflows: bool) -> None:
         created.append(str(sdlc_yml))
         click.echo(f"  create  {sdlc_yml}")
 
-    # --- analysis config + instruction files ---
-    for rel_path, content in _INIT_FILE_TEMPLATES.items():
-        target = Path.cwd() / Path(rel_path)
-        if target.exists():
-            click.echo(f"  skip  {rel_path} (already exists)")
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        created.append(str(target))
-        click.echo(f"  create  {rel_path}")
+    # --- mandatory analysis templates ---
+    for rel_path in _INIT_MANDATORY_PATHS:
+        _scaffold_template_file(rel_path, created)
 
-    # --- GitHub Actions workflows ---
-    if not skip_workflows:
-        workflows_dir = Path.cwd() / ".github" / "workflows"
-        workflows_dir.mkdir(parents=True, exist_ok=True)
+    # --- optional bundles ---
+    selected_optional_bundles = _resolve_optional_bundles(
+        optional_bundles=optional_bundles,
+        skip_workflows=skip_workflows,
+    )
+    if selected_optional_bundles:
+        click.echo(f"[INFO] Optional bundles: {', '.join(selected_optional_bundles)}")
+    else:
+        click.echo("[INFO] Optional bundles: none")
 
-        for filename, content in _WORKFLOW_TEMPLATES.items():
-            wf = workflows_dir / filename
-            if wf.exists():
-                click.echo(f"  skip  .github/workflows/{filename} (already exists)")
-            else:
-                wf.write_text(content, encoding="utf-8")
-                created.append(str(wf))
-                click.echo(f"  create  .github/workflows/{filename}")
+    selected_paths: list[str] = []
+    for bundle in selected_optional_bundles:
+        selected_paths.extend(_INIT_OPTIONAL_BUNDLES[bundle])
+    for rel_path in dict.fromkeys(selected_paths):
+        _scaffold_template_file(rel_path, created)
 
     if created:
         count = len(created)

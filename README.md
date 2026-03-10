@@ -80,18 +80,32 @@ sdlc-tools init
 # or: python -m sdlc_tools init
 ```
 
-This creates `.sdlc.yml`, instruction/config scaffolding, and workflows (skipping existing files):
+`sdlc-tools init` now creates mandatory files plus optional bundles (always skipping existing files).
+
+Mandatory files (always generated):
 
 | File | Purpose |
 |---|---|
 | `.sdlc.yml` | Project-level settings (committed to git) |
-| `config/risk_rules.yaml` | Rule-engine configuration for risk analyzer signals |
-| `config/review_personas.yaml` | Persona mapping + primary persona for review mode |
 | `instructions/report/report_base.md` | Report-mode base instruction |
 | `instructions/review/review_base.md` | Review-mode base instruction |
-| `instructions/review/personas/*.md` | Persona instruction files (security/performance/architecture) |
-| `.github/workflows/ai-report.yml` | AI code impact report on every PR |
-| `.github/workflows/release-tag.yml` | Auto-tag on PR merge into `releases/**` |
+
+Optional bundles (multi-select):
+
+| Bundle | Files generated |
+|---|---|
+| `risk-rules` | `config/risk_rules.yaml` |
+| `review-personas` | `config/review_personas.yaml` + `instructions/review/personas/*.md` |
+| `ai-report-workflow` | `.github/workflows/ai-report.yml` |
+| `release-tag-workflow` | `.github/workflows/release-tag.yml` |
+| `local-tag-event-json` | `event.json` (for local `tag` testing) |
+
+Selection shortcuts:
+- `select-all` includes all optional bundles
+- `select-none` skips all optional bundles
+
+If you run `init` in an interactive terminal, you'll be prompted to choose optional bundles.
+In non-interactive mode, it defaults to `select-all` unless `--optional` is provided.
 
 Edit `.sdlc.yml` to match your project:
 
@@ -106,10 +120,13 @@ sdlc:
   max_diff_length: 20000
 ```
 
-To skip workflow generation (config only):
+Examples:
 
 ```bash
-sdlc-tools init --skip-workflows
+sdlc-tools init --optional select-none
+sdlc-tools init --optional review-personas --optional local-tag-event-json
+sdlc-tools init --optional select-all
+sdlc-tools init --optional select-all --skip-workflows
 ```
 
 ### 4. Use it
@@ -261,12 +278,19 @@ Commands:
 
 ### `sdlc-tools init`
 
-Scaffolds project config and CI workflows:
+Scaffolds project config and instructions, with optional bundle selection:
 
 ```
-sdlc-tools init                   # creates .sdlc.yml + config/ + instructions/ + workflows
-sdlc-tools init --skip-workflows  # creates .sdlc.yml + config/ + instructions/
+sdlc-tools init  # mandatory files + optional-bundle prompt (interactive terminal)
+sdlc-tools init --optional select-none
+sdlc-tools init --optional review-personas --optional ai-report-workflow
+sdlc-tools init --optional select-all --skip-workflows
 ```
+
+| Option | Description |
+|---|---|
+| `--optional TEXT` | Optional bundle to include (repeatable): `risk-rules`, `review-personas`, `ai-report-workflow`, `release-tag-workflow`, `local-tag-event-json`, `select-all`, `select-none`. |
+| `--skip-workflows` | Excludes workflow bundles even if selected (or included via `select-all`). |
 
 Existing files are never overwritten — safe to re-run.
 
