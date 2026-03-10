@@ -19,7 +19,8 @@ Mention if config files were modified.
 ## Backward Compatibility
 Highlight possible breaking changes.
 
-Return clean Markdown with headings and bullet points.
+Return only one clean Markdown report with headings and bullet points.
+Do not include prefaces like "Here is the report" and do not duplicate sections.
 Be concise but precise.
 
 Here is the git diff:

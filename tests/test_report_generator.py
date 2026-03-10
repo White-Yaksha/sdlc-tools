@@ -169,6 +169,35 @@ class TestRunReport:
             pipeline.run.side_effect = ValueError("bad prompt config")
             ReportGenerator(mock_client, report_config).run()
 
+    def test_run_normalizes_chatty_duplicate_output(
+        self, mock_client: MagicMock, report_config: SdlcConfig,
+    ) -> None:
+        provider = _provider()
+        noisy_markdown = (
+            "Here is the structured Markdown report:\n\n"
+            "High-Level Summary\nDraft section\n\n"
+            "Here is the report in Markdown format:\n"
+            "Code Impact Analysis Report\n"
+            "High-Level Summary\nFinal section\n"
+            "Risk Assessment\nLow"
+        )
+        with (
+            patch(f"{_R}.get_repo_url", return_value="owner/repo"),
+            patch(f"{_R}.get_current_branch", return_value="feature/x"),
+            patch(f"{_R}.get_provider", return_value=provider),
+            patch(f"{_R}.convert_markdown_to_html", return_value="<html/>") as html,
+            patch(f"{_R}.AnalysisPipeline") as pipeline_cls,
+        ):
+            pipeline = pipeline_cls.return_value
+            pipeline.fetch_diff.return_value = "diff"
+            pipeline.run.return_value = _pipeline_output(noisy_markdown)
+            ReportGenerator(mock_client, report_config).run()
+
+        converted_markdown = html.call_args[0][0]
+        assert converted_markdown.startswith("Code Impact Analysis Report")
+        assert "Final section" in converted_markdown
+        assert "Draft section" not in converted_markdown
+
 
 class TestRunReview:
     def test_review_uses_review_mode_and_personas(
