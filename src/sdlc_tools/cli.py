@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -568,21 +569,98 @@ def _parse_optional_bundle_selection(values: tuple[str, ...]) -> list[str]:
     return selected
 
 
-def _prompt_optional_bundle_selection() -> list[str]:
-    """Prompt for optional init bundles in interactive terminals."""
-    click.echo("\nOptional init bundles (comma-separated):")
-    for key, description in _INIT_OPTIONAL_BUNDLE_DESCRIPTIONS.items():
-        click.echo(f"  - {key}: {description}")
-    click.echo("  - select-all: include all optional bundles")
-    click.echo("  - select-none: skip all optional bundles")
+def _read_navigation_key(*, key_reader: Callable[[], str]) -> str:
+    """Read one navigation key event from terminal input."""
+    key = key_reader()
 
-    raw = click.prompt(
-        "Choose optional bundles",
-        default="select-all",
-        show_default=True,
-    )
-    selections = tuple(part.strip() for part in raw.split(",") if part.strip())
-    return _parse_optional_bundle_selection(selections)
+    if key in ("\r", "\n"):
+        return "enter"
+    if key in ("\x1b[A", "\x1bOA"):
+        return "up"
+    if key in ("\x1b[B", "\x1bOB"):
+        return "down"
+
+    # Windows arrow keys often arrive as a two-character sequence.
+    if key in ("\x00", "\xe0"):
+        follow = key_reader()
+        if follow == "H":
+            return "up"
+        if follow == "P":
+            return "down"
+        return "other"
+
+    # POSIX terminals may emit ESC + [ + A/B.
+    if key == "\x1b":
+        second = key_reader()
+        if second in ("[", "O"):
+            third = key_reader()
+            if third == "A":
+                return "up"
+            if third == "B":
+                return "down"
+        return "other"
+
+    if key.lower() == "k":
+        return "up"
+    if key.lower() == "j":
+        return "down"
+    return "other"
+
+
+def _prompt_optional_mode_with_arrows(
+    *,
+    key_reader: Callable[[], str] | None = None,
+) -> str:
+    """Prompt for optional selection mode using arrow keys + Enter."""
+    reader = key_reader or click.getchar
+    modes: list[tuple[str, str]] = [
+        ("select-all", "Select all optional bundles"),
+        ("select-none", "Select none (mandatory files only)"),
+        ("custom", "Custom per-bundle selection (y/N prompts)"),
+    ]
+
+    index = 0
+    click.echo("\nChoose optional selection mode (↑/↓ + Enter):")
+    click.echo(f"Current: {modes[index][1]}")
+
+    while True:
+        nav = _read_navigation_key(key_reader=reader)
+        if nav == "up":
+            index = (index - 1) % len(modes)
+            click.echo(f"Current: {modes[index][1]}")
+            continue
+        if nav == "down":
+            index = (index + 1) % len(modes)
+            click.echo(f"Current: {modes[index][1]}")
+            continue
+        if nav == "enter":
+            click.echo(f"Selected: {modes[index][1]}")
+            return modes[index][0]
+
+
+def _prompt_custom_optional_bundles() -> list[str]:
+    """Prompt y/N for each optional init bundle."""
+    click.echo("\nCustom optional bundle selection (y/N):")
+    selected: list[str] = []
+    for key, description in _INIT_OPTIONAL_BUNDLE_DESCRIPTIONS.items():
+        include = click.confirm(
+            f"Include {key} ({description})?",
+            default=False,
+            show_default=True,
+        )
+        if include:
+            selected.append(key)
+    return selected
+
+
+def _prompt_optional_bundle_selection() -> list[str]:
+    """Interactive optional-bundle selector for init command."""
+    mode = _prompt_optional_mode_with_arrows()
+    if mode == "select-all":
+        return list(_INIT_OPTIONAL_BUNDLES)
+    if mode == "select-none":
+        return []
+    return _prompt_custom_optional_bundles()
 
 
 def _resolve_optional_bundles(
