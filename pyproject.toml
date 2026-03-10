@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sdlc-tools"
-version = "1.0.2"
+version = "1.0.3"
 description = "A developer CLI toolkit for SDLC automation — AI code impact reports, release tagging, and PR management."
 readme = "README.md"
 license = "MIT"
