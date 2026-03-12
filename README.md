@@ -161,6 +161,9 @@ sdlc-tools review
 sdlc-tools review --persona security
 sdlc-tools review --persona all
 
+# Review a specific branch (without checking it out)
+sdlc-tools review --branch feature/xyz
+
 # Preview without side effects
 sdlc-tools report --dry-run
 
@@ -252,11 +255,10 @@ Commands:
 | `--base-branch TEXT` | Base branch for diff (overrides config). |
 | `--provider TEXT` | AI provider: `copilot`, `openai`, `anthropic`, `gemini`, `ollama`. |
 | `--model TEXT` | AI model name (overrides config default). |
-| `--push` | Push the current branch to origin before generating review feedback. |
-| `--force-push` | Force-push the current branch (implies `--push`). |
+| `--branch TEXT` | Branch to review (overrides current branch). |
 | `--persona TEXT` | Reviewer persona (repeatable). Use `all` for all configured personas. |
 
-**How it works:** Uses the same shared analysis pipeline as report mode, but loads review base instructions plus persona instructions from files. If `--persona` is omitted, the `primary_persona` from `config/review_personas.yaml` is used.
+**How it works:** Uses the same shared analysis pipeline as report mode, but loads review base instructions plus persona instructions from files. If `--persona` is omitted, the `primary_persona` from `config/review_personas.yaml` is used. Review mode requires an existing open PR for the branch — if no PR is found, the review is skipped. It never pushes branches or creates PRs.
 
 ### `sdlc-tools tag`
 

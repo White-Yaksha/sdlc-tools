@@ -154,10 +154,8 @@ def report(
 @click.option("--provider", "ai_provider", default=None,
               help="AI provider: copilot, openai, anthropic, gemini, ollama.")
 @click.option("--model", "ai_model", default=None, help="AI model name (overrides config).")
-@click.option("--push", "push_first", is_flag=True, default=False,
-              help="Push the current branch to origin before generating the review.")
-@click.option("--force-push", "force_push", is_flag=True, default=False,
-              help="Force-push the current branch (implies --push).")
+@click.option("--branch", default=None,
+              help="Branch to review (overrides current branch).")
 @click.option(
     "--persona",
     "personas",
@@ -171,20 +169,12 @@ def review(
     base_branch: str | None,
     ai_provider: str | None,
     ai_model: str | None,
-    push_first: bool,
-    force_push: bool,
+    branch: str | None,
     personas: tuple[str, ...],
 ) -> None:
     """Generate an AI review report (persona-based) and post it to the PR."""
     from sdlc_tools.client import GitHubClient
     from sdlc_tools.report import ReportGenerator
-
-    if push_first or force_push:
-        from sdlc_tools.git import push_current_branch
-
-        if not push_current_branch(force=force_push):
-            click.echo("[ERROR] Git push failed. Aborting review.", err=True)
-            sys.exit(1)
 
     config = _build_config(ctx, {
         "base_branch": base_branch,
@@ -200,7 +190,7 @@ def review(
         sys.exit(1)
 
     generator = ReportGenerator(client, config)
-    generator.review(personas=list(personas))
+    generator.review(personas=list(personas), branch=branch)
 
 
 # -----------------------------------------------------------------------

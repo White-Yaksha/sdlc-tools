@@ -29,14 +29,17 @@ def get_current_branch() -> str:
     return result.stdout.strip()
 
 
-def get_diff(base_branch: str) -> str:
-    """Generate git diff between ``origin/<base_branch>`` and ``HEAD``.
+def get_diff(base_branch: str, *, head_ref: str = "HEAD") -> str:
+    """Generate git diff between ``origin/<base_branch>`` and *head_ref*.
+
+    *head_ref* defaults to ``HEAD`` but can be set to a branch name so that
+    the diff is computed without requiring a checkout.
 
     Fetches the base branch first to ensure accuracy.
     """
     fetch_branch(base_branch)
     result = subprocess.run(
-        ["git", "diff", f"origin/{base_branch}...HEAD"],
+        ["git", "diff", f"origin/{base_branch}...{head_ref}"],
         capture_output=True,
         text=True,
         timeout=60,
