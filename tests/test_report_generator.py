@@ -204,6 +204,7 @@ class TestRunReview:
         self, mock_client: MagicMock, report_config: SdlcConfig,
     ) -> None:
         provider = _provider()
+        mock_client.find_pr.return_value = 42
         with (
             patch(f"{_R}.get_repo_url", return_value="owner/repo"),
             patch(f"{_R}.get_current_branch", return_value="feature/x"),
@@ -225,11 +226,59 @@ class TestRunReview:
         assert run_kwargs["mode"] == "review"
         assert run_kwargs["personas"] == ["security", "performance"]
         assert html.call_args[1]["marker"] == report_config.review_comment_marker
+        mock_client.find_pr.assert_called_once_with("owner", "repo", "feature/x")
+
+    def test_review_skips_when_no_pr(
+        self, mock_client: MagicMock, report_config: SdlcConfig,
+    ) -> None:
+        mock_client.find_pr.return_value = None
+        with (
+            patch(f"{_R}.get_repo_url", return_value="owner/repo"),
+            patch(f"{_R}.get_current_branch", return_value="feature/x"),
+            patch(f"{_R}.AnalysisPipeline") as pipeline_cls,
+        ):
+            pipeline = pipeline_cls.return_value
+            ReportGenerator(mock_client, report_config).review(personas=["security"])
+
+        pipeline.fetch_diff.assert_not_called()
+        pipeline.run.assert_not_called()
+        mock_client.create_comment.assert_not_called()
+
+    def test_review_uses_branch_override(
+        self, mock_client: MagicMock, report_config: SdlcConfig,
+    ) -> None:
+        provider = _provider()
+        mock_client.find_pr.return_value = 42
+        with (
+            patch(f"{_R}.get_repo_url", return_value="owner/repo"),
+            patch(f"{_R}.get_current_branch") as get_branch,
+            patch(f"{_R}.get_provider", return_value=provider),
+            patch(f"{_R}.AnalysisPipeline") as pipeline_cls,
+            patch(f"{_R}.convert_markdown_to_html", return_value="<html/>"),
+        ):
+            pipeline = pipeline_cls.return_value
+            pipeline.fetch_diff.return_value = "diff"
+            pipeline.run.return_value = _pipeline_output(
+                markdown="review markdown",
+                personas=["security"],
+            )
+            ReportGenerator(mock_client, report_config).review(
+                personas=["security"],
+                branch="other/branch",
+            )
+
+        get_branch.assert_not_called()
+        mock_client.find_pr.assert_called_once_with("owner", "repo", "other/branch")
+        pipeline.fetch_diff.assert_called_once_with(
+            base_branch="main",
+            head_ref="other/branch",
+        )
 
     def test_review_dry_run_skips_post(
         self, mock_client: MagicMock, dry_run_config: SdlcConfig,
     ) -> None:
         provider = _provider()
+        mock_client.find_pr.return_value = 42
         with (
             patch(f"{_R}.get_repo_url", return_value="owner/repo"),
             patch(f"{_R}.get_current_branch", return_value="feature/x"),
@@ -241,7 +290,7 @@ class TestRunReview:
             ReportGenerator(mock_client, dry_run_config).review(personas=["security"])
 
         pipeline.run.assert_not_called()
-        mock_client.find_pr.assert_not_called()
+        mock_client.create_comment.assert_not_called()
 
 
 class TestRunCommitWise:

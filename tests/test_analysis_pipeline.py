@@ -77,7 +77,7 @@ class TestAnalysisPipeline:
 
         with patch("sdlc_tools.analysis_pipeline.get_diff", return_value="FULL") as full:
             assert pipeline.fetch_diff(base_branch="main") == "FULL"
-            full.assert_called_once_with("main")
+            full.assert_called_once_with("main", head_ref="HEAD")
 
         with patch(
             "sdlc_tools.analysis_pipeline.get_commit_diff",

@@ -44,11 +44,17 @@ class AnalysisPipeline:
         ]
         self.prompt_loader = prompt_loader or PromptLoader(config)
 
-    def fetch_diff(self, *, base_branch: str, commit_sha: str | None = None) -> str:
+    def fetch_diff(
+        self,
+        *,
+        base_branch: str,
+        commit_sha: str | None = None,
+        head_ref: str = "HEAD",
+    ) -> str:
         """Fetch a full branch diff or a single commit diff."""
         if commit_sha:
             return get_commit_diff(commit_sha)
-        return get_diff(base_branch)
+        return get_diff(base_branch, head_ref=head_ref)
 
     def run(
         self,
