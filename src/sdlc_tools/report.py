@@ -162,23 +162,48 @@ class ReportGenerator:
         # Post to PR.
         self._post_to_pr(owner, repo, branch, html_report, marker=marker)
 
-    def review(self, *, personas: list[str] | None = None) -> None:
-        """Generate reviewer feedback using review mode + optional personas."""
+    def review(
+        self,
+        *,
+        personas: list[str] | None = None,
+        branch: str | None = None,
+    ) -> None:
+        """Generate reviewer feedback using review mode + optional personas.
+
+        If *branch* is provided it overrides the current branch for both the
+        diff computation and the PR lookup.  Review mode never pushes or
+        creates PRs — if no open PR exists for the branch the review is
+        skipped.
+        """
         repo_full = self.config.github_repository or get_repo_url()
         if not repo_full or "/" not in repo_full:
             log.error("Could not determine repository (owner/repo).")
             sys.exit(1)
 
         owner, repo = repo_full.split("/", 1)
-        branch = get_current_branch()
+        branch = branch or get_current_branch()
         log.info("Branch: %s", branch)
 
         if branch == self.config.base_branch:
             log.info("On base branch '%s'. Nothing to review.", self.config.base_branch)
             return
 
+        # Review mode requires an existing PR — never create one.
+        pr_number = self.client.find_pr(owner, repo, branch)
+        if pr_number is None:
+            log.info(
+                "No open PR found for branch '%s'. Skipping review.",
+                branch,
+            )
+            return
+
+        log.info("PR number: #%d", pr_number)
+
         pipeline = AnalysisPipeline(self.config)
-        diff = pipeline.fetch_diff(base_branch=self.config.base_branch)
+        diff = pipeline.fetch_diff(
+            base_branch=self.config.base_branch,
+            head_ref=branch,
+        )
         if not diff or not diff.strip():
             log.info("No diff detected. Nothing to review.")
             return
@@ -225,13 +250,18 @@ class ReportGenerator:
             marker=self.config.review_comment_marker,
             subtitle=f"Provider: {provider.display_name} | Personas: {persona_label}",
         )
-        self._post_to_pr(
-            owner,
-            repo,
-            branch,
-            html_report,
-            marker=self.config.review_comment_marker,
+
+        # Post or update comment on the existing PR.
+        comment_marker = self.config.review_comment_marker
+        existing_id = self.client.find_comment_by_marker(
+            owner, repo, pr_number, comment_marker,
         )
+        if existing_id:
+            self.client.update_comment(owner, repo, existing_id, html_report)
+        else:
+            self.client.create_comment(owner, repo, pr_number, html_report)
+
+        log.info("AI review generation complete.")
 
     # ------------------------------------------------------------------
     # PR interaction
