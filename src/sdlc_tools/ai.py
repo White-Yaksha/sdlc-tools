@@ -75,12 +75,19 @@ class CopilotProvider(AIProvider):
                 f"Read the file at {tmp_path} and follow the instructions inside it. "
                 "Return only the Markdown report, nothing else."
             )
-            cmd = ["gh", "copilot", "--", "-p", short_prompt, "--allow-all-tools"]
+            cmd = [
+                "gh", "copilot", "--",
+                "-p", short_prompt,
+                "--allow-all-tools",
+                "--autopilot",
+                "-s",
+            ]
             if self.model:
                 cmd.extend(["--model", self.model])
             result = subprocess.run(
                 cmd,
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 text=True,
                 timeout=self.timeout,
                 encoding="utf-8",
