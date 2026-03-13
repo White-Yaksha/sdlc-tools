@@ -6,7 +6,6 @@ import abc
 import os
 import re
 import subprocess
-import tempfile
 from typing import TYPE_CHECKING
 
 import requests
@@ -63,27 +62,16 @@ class CopilotProvider(AIProvider):
 
     def analyze(self, prompt: str, diff: str) -> str:
         full_prompt = prompt + diff
-        tmp_path = tempfile.mktemp(suffix=".txt")
+        cmd = [
+            "gh", "copilot", "--",
+            "-p", full_prompt,
+            "--allow-all-tools",
+            "--autopilot",
+            "-s",
+        ]
+        if self.model:
+            cmd.extend(["--model", self.model])
         try:
-            fd = os.open(
-                tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
-            )
-            with os.fdopen(fd, "w", encoding="utf-8") as tmp:
-                tmp.write(full_prompt)
-
-            short_prompt = (
-                f"Read the file at {tmp_path} and follow the instructions inside it. "
-                "Return only the Markdown report, nothing else."
-            )
-            cmd = [
-                "gh", "copilot", "--",
-                "-p", short_prompt,
-                "--allow-all-tools",
-                "--autopilot",
-                "-s",
-            ]
-            if self.model:
-                cmd.extend(["--model", self.model])
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -103,9 +91,6 @@ class CopilotProvider(AIProvider):
             raise RuntimeError(
                 f"Copilot CLI timed out after {self.timeout}s.",
             ) from exc
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
 
         if result.returncode != 0:
             raise RuntimeError(f"Copilot CLI failed: {result.stderr.strip()}")
