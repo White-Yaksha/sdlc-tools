@@ -41,7 +41,7 @@ class SdlcConfig:
     ai_model: str = ""
     ai_api_key: str = ""
     ai_base_url: str = ""
-    ai_timeout: int = 120
+    ai_timeout: int = 180
     instruction_root: str = "instructions"
     risk_rules_file: str = "config/risk_rules.yaml"
     review_personas_file: str = "config/review_personas.yaml"
