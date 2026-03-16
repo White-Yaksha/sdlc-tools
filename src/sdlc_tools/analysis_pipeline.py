@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING
 from sdlc_tools.analyzers.base_analyzer import BaseAnalyzer
 from sdlc_tools.analyzers.risk_analyzer import RiskAnalyzer
 from sdlc_tools.git import get_commit_diff, get_diff
+from sdlc_tools.log import get_logger
 from sdlc_tools.prompt_loader import PromptLoader
 
 if TYPE_CHECKING:
     from sdlc_tools.ai import AIProvider
     from sdlc_tools.config import SdlcConfig
+
+log = get_logger("pipeline")
 
 
 @dataclass
@@ -51,10 +54,24 @@ class AnalysisPipeline:
         commit_sha: str | None = None,
         head_ref: str = "HEAD",
     ) -> str:
-        """Fetch a full branch diff or a single commit diff."""
+        """Fetch a full branch diff or a single commit diff.
+
+        The returned diff is truncated to ``config.max_diff_length`` characters
+        when the limit is positive.
+        """
         if commit_sha:
-            return get_commit_diff(commit_sha)
-        return get_diff(base_branch, head_ref=head_ref)
+            raw = get_commit_diff(commit_sha)
+        else:
+            raw = get_diff(base_branch, head_ref=head_ref)
+
+        limit = self.config.max_diff_length
+        if limit and limit > 0 and len(raw) > limit:
+            log.info(
+                "Diff truncated from %d to %d characters (max_diff_length).",
+                len(raw), limit,
+            )
+            raw = raw[:limit] + f"\n\n... [diff truncated at {limit} characters] ...\n"
+        return raw
 
     def run(
         self,
