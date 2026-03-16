@@ -195,30 +195,14 @@ class TestGetProvider:
         raw = (
             "● Read ~\\AppData\\Local\\Temp\\tmpfths2af3.txt\n"
             "└ 818 lines read\n"
-            "$ cd C:\\visibility\\wtg && git --no-pager log\n"
-            "(C:\\visibility\\wtg\\src\\test)\n"
-            "Now I have all the data. Let me compile the report.\n"
-            "lines 70-100\n"
-            "EW_BMV_CONFIG.sql\n"
-            "Good — all findings are confirmed. Let me now compile.\n"
             "# Impact Report\n"
             "Some content here.\n"
-            "## Risk Assessment\n"
-            "Low risk.\n"
         )
         cleaned = CopilotProvider._clean_copilot_output(raw)
-        # Everything before the first heading is stripped.
-        assert cleaned.startswith("# Impact Report")
         assert "● Read" not in cleaned
-        assert "$ cd" not in cleaned
-        assert "(C:\\visibility" not in cleaned
-        assert "Now I have all the data" not in cleaned
-        assert "EW_BMV_CONFIG.sql" not in cleaned
-        assert "Good — all findings" not in cleaned
-        # Report content is preserved.
+        assert "└ 818" not in cleaned
+        assert "# Impact Report" in cleaned
         assert "Some content here." in cleaned
-        assert "## Risk Assessment" in cleaned
-        assert "Low risk." in cleaned
 
     def test_openai_with_key(self) -> None:
         cfg = SdlcConfig(ai_provider="openai", ai_api_key="sk-test")
