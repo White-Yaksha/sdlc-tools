@@ -73,19 +73,21 @@ class CopilotProvider(AIProvider):
 
         # Prompt too long for a command-line argument — write to a temp file
         # and pass a short instruction that references it.
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", encoding="utf-8", delete=False,
-        )
+        tmp_path = None
         try:
-            tmp.write(full_prompt)
-            tmp.close()
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".md", encoding="utf-8", delete=False,
+            ) as tmp:
+                tmp.write(full_prompt)
+                tmp_path = tmp.name
             return self._run([
                 "-p",
-                f"Read the file at {tmp.name} and follow the instructions "
+                f"Read the file at {tmp_path} and follow the instructions "
                 "inside it. Return only the Markdown report, nothing else.",
             ])
         finally:
-            os.unlink(tmp.name)
+            if tmp_path:
+                os.unlink(tmp_path)
 
     def _run(self, prompt_args: list[str]) -> str:
         """Execute ``gh copilot`` with the given prompt arguments.

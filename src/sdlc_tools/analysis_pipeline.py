@@ -70,7 +70,7 @@ class AnalysisPipeline:
                 "Diff truncated from %d to %d characters (max_diff_length).",
                 len(raw), limit,
             )
-            raw = raw[:limit] + "\n\n... [diff truncated at %d characters] ...\n" % limit
+            raw = raw[:limit] + f"\n\n... [diff truncated at {limit} characters] ...\n"
         return raw
 
     def run(
