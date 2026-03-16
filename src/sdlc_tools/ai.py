@@ -6,7 +6,6 @@ import abc
 import os
 import re
 import subprocess
-import tempfile
 from typing import TYPE_CHECKING
 
 import requests
@@ -56,109 +55,57 @@ class CopilotProvider(AIProvider):
     """
 
     name = "copilot"
-    _MAX_RETRIES = 2
 
     def __init__(self, model: str = "", timeout: int = 120) -> None:
         self.model = model
         self.timeout = timeout
 
-    # gh.exe passes arguments through cmd.exe which has an 8191-char limit.
-    _CMD_LINE_SAFE_LEN = 7000
-
     def analyze(self, prompt: str, diff: str) -> str:
         full_prompt = prompt + diff
-
-        if len(full_prompt) <= self._CMD_LINE_SAFE_LEN:
-            return self._run(["-p", full_prompt])
-
-        # Prompt too long for a command-line argument — write to a temp file
-        # and pass a short instruction that references it.
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".md", encoding="utf-8", delete=False,
-            ) as tmp:
-                tmp.write(full_prompt)
-                tmp_path = tmp.name
-            return self._run([
-                "-p",
-                f"Read the file at {tmp_path} and follow the instructions "
-                "inside it. Return only the Markdown report, nothing else.",
-            ])
-        finally:
-            if tmp_path:
-                os.unlink(tmp_path)
-
-    def _run(self, prompt_args: list[str]) -> str:
-        """Execute ``gh copilot`` with the given prompt arguments.
-
-        Retries once on timeout to handle intermittent slowness.
-        """
         cmd = [
             "gh", "copilot", "--",
-            *prompt_args,
+            "-p", full_prompt,
             "--allow-all-tools",
             "--autopilot",
             "-s",
         ]
         if self.model:
             cmd.extend(["--model", self.model])
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                timeout=self.timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "gh CLI not found. Install it (https://cli.github.com) to use the"
+                " Copilot provider, or switch to another provider"
+                " (e.g. --provider gemini).",
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Copilot CLI timed out after {self.timeout}s.",
+            ) from exc
 
-        last_exc: RuntimeError | None = None
-        for attempt in range(1, self._MAX_RETRIES + 1):
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    timeout=self.timeout,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-            except FileNotFoundError as exc:
-                raise RuntimeError(
-                    "gh CLI not found. Install it (https://cli.github.com) to use the"
-                    " Copilot provider, or switch to another provider"
-                    " (e.g. --provider gemini).",
-                ) from exc
-            except subprocess.TimeoutExpired:
-                last_exc = RuntimeError(
-                    f"Copilot CLI timed out after {self.timeout}s"
-                    f" (attempt {attempt}/{self._MAX_RETRIES}).",
-                )
-                log.warning(
-                    "Copilot CLI timed out after %ds (attempt %d/%d). %s",
-                    self.timeout,
-                    attempt,
-                    self._MAX_RETRIES,
-                    "Retrying..." if attempt < self._MAX_RETRIES else "Giving up.",
-                )
-                continue
+        if result.returncode != 0:
+            raise RuntimeError(f"Copilot CLI failed: {result.stderr.strip()}")
 
-            if result.returncode != 0:
-                raise RuntimeError(f"Copilot CLI failed: {result.stderr.strip()}")
+        return self._clean_copilot_output((result.stdout or "").strip())
 
-            return self._clean_copilot_output((result.stdout or "").strip())
-
-        raise last_exc  # type: ignore[misc]
-
-    # Copilot CLI emits tool-use progress lines, shell commands, working-
-    # directory markers, and internal narration before the actual report.
-    # Rather than pattern-matching every variation, we strip everything
-    # before the first Markdown heading — the report always starts with one.
-    _HEADING_RE = re.compile(r"^#{1,6}\s")
+    # Copilot CLI emits tool-use progress lines (e.g. "● Read ...",
+    # "└ 818 lines read") that pollute the Markdown report. Strip them.
+    _STATUS_LINE_RE = re.compile(r"^\s*[●○◉◎├└│┌┐┘┤┬┴┼─╭╰▸▹►▶⏵⮕→⟶]\s")
 
     @classmethod
     def _clean_copilot_output(cls, text: str) -> str:
         lines = text.splitlines()
-        # Find the first Markdown heading — everything before it is preamble.
-        start = 0
-        for idx, ln in enumerate(lines):
-            if cls._HEADING_RE.match(ln):
-                start = idx
-                break
-        return "\n".join(lines[start:]).strip()
+        cleaned = [ln for ln in lines if not cls._STATUS_LINE_RE.match(ln)]
+        return "\n".join(cleaned).strip()
 
 
 # ---------------------------------------------------------------------------
