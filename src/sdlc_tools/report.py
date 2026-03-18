@@ -414,7 +414,7 @@ class ReportGenerator:
                 head=branch,
                 base=self.config.base_branch,
                 title=title,
-                body="Auto-generated PR created by SDLC automation.",
+                body="Auto-generated PR created by [sdlc-tools](https://pypi.org/project/sdlc-tools/).",
                 draft=True,
             )
         except Exception as exc:
