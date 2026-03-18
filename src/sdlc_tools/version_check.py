@@ -27,8 +27,8 @@ def check_for_update() -> None:
     if latest != __version__:
         click.echo(
             click.style(
-                f"[UPDATE] A newer version of sdlc-tools is available: "
-                f"{__version__} → {latest}.  "
+                f"[UPDATE] sdlc-tools {latest} is available "
+                f"(current: {__version__}).  "
                 f"Run: pip install --upgrade sdlc-tools",
                 fg="yellow",
             ),
