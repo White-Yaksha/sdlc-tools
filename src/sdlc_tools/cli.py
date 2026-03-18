@@ -32,6 +32,9 @@ def main(
     """SDLC Tools — A developer CLI for SDLC automation."""
     setup_logging(verbose=verbose, log_file=log_file)
 
+    from sdlc_tools.version_check import check_for_update
+    check_for_update()
+
     cfg_path = Path(config_path) if config_path else None
     ctx.ensure_object(dict)
     ctx.obj["cli_overrides"] = {
