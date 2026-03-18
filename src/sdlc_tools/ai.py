@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -101,14 +102,21 @@ class CopilotProvider(AIProvider):
         # (e.g. "C:\Program Files\GitHub CLI\gh.exe") are properly quoted by
         # subprocess.list2cmdline when passed to CreateProcess.
         gh = shutil.which("gh") or "gh"
+        log.debug("Resolved gh CLI path: %s", gh)
 
-        cmd = [
+        cmd: list[str] = []
+        # On Windows, .cmd/.bat shims (e.g. from Scoop/Chocolatey) cannot be
+        # executed directly by CreateProcess — they need cmd.exe.
+        if sys.platform == "win32" and gh.lower().endswith((".cmd", ".bat")):
+            cmd = ["cmd.exe", "/c"]
+
+        cmd.extend([
             gh, "copilot", "--",
             *prompt_args,
             "--allow-all-tools",
             "--autopilot",
             "-s",
-        ]
+        ])
         if self.model:
             cmd.extend(["--model", self.model])
 
