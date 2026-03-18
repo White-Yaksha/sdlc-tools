@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import TYPE_CHECKING
@@ -96,8 +97,13 @@ class CopilotProvider(AIProvider):
 
         Retries once on timeout to handle intermittent slowness.
         """
+        # Resolve the full path to gh so that Windows paths containing spaces
+        # (e.g. "C:\Program Files\GitHub CLI\gh.exe") are properly quoted by
+        # subprocess.list2cmdline when passed to CreateProcess.
+        gh = shutil.which("gh") or "gh"
+
         cmd = [
-            "gh", "copilot", "--",
+            gh, "copilot", "--",
             *prompt_args,
             "--allow-all-tools",
             "--autopilot",
